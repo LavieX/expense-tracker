@@ -1,0 +1,5 @@
+Transaction ID,Posting Date,Effective Date,Transaction Type,Amount,Check Number,Description,Transaction Category
+1001,01/10/2026,01/10/2026,Debit,-150.00,,XCEL ENERGY PAYMENT,Utilities
+1002,01/12/2026,01/12/2026,Debit,-2500.00,,MORTGAGE PAYMENT,Housing
+1003,01/14/2026,01/14/2026,Credit,50.00,,VENMO CASHBACK,Refund
+1004,01/16/2026,01/16/2026,Debit,-42.50,,KING SOOPERS #456,Groceries

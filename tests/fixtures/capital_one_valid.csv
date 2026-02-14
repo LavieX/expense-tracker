@@ -1,0 +1,5 @@
+Transaction Date,Posted Date,Card No.,Description,Category,Debit,Credit
+2026-01-15,2026-01-16,1234,WHOLE FOODS MARKET,Groceries,45.67,
+2026-01-17,2026-01-18,1234,UBER EATS,Dining,22.10,
+2026-01-19,2026-01-20,1234,REFUND - ONLINE ORDER,Shopping,,15.00
+2026-01-21,2026-01-22,1234,NETFLIX.COM,Entertainment,17.99,
