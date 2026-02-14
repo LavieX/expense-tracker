@@ -1,0 +1,24 @@
+# Merchant-to-category mapping rules for testing
+# User rules always take precedence over learned rules.
+# Matching: case-insensitive substring, longest match wins.
+
+[user_rules]
+# Manually authored rules. The system never modifies this section.
+"KING SOOPERS" = "Food & Dining:Groceries"
+"CHIPOTLE" = "Food & Dining:Fast Food"
+"WHOLEFDS" = "Food & Dining:Groceries"
+"SPROUTS FARMERS" = "Food & Dining:Groceries"
+"STARBUCKS" = "Food & Dining:Coffee"
+"NETFLIX" = "Entertainment:Subscriptions"
+"SHELL OIL" = "Transportation:Gas/Fuel"
+"PRIMROSE SCHOOL" = "Kids:Preschool"
+"PLANET FITNESS" = "Health & Fitness:Gym/Classes"
+
+[learned_rules]
+# System-managed rules from the learn command. Do not hand-edit.
+"TARGET" = "Shopping"
+"APPLE.COM/BILL" = "Entertainment:Subscriptions"
+"SPOTIFY" = "Entertainment:Subscriptions"
+"CVS/PHARMACY" = "Healthcare:Pharmacy"
+"PETCO" = "Pets:Supplies"
+"CHEWY.COM" = "Pets:Food"

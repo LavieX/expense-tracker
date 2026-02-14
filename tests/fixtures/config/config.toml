@@ -1,0 +1,36 @@
+# Test configuration for Expense Tracker v3
+
+[general]
+output_dir = "output"
+enrichment_cache_dir = "enrichment-cache"
+
+[transfer_detection]
+keywords = ["PAYMENT", "AUTOPAY", "ONLINE PAYMENT", "PAYOFF"]
+date_window_days = 5
+
+[llm]
+provider = "none"
+model = ""
+api_key_env = ""
+
+# Account definitions
+[[accounts]]
+name = "Chase Credit Card"
+institution = "chase"
+parser = "chase"
+account_type = "credit_card"
+input_dir = "input/chase"
+
+[[accounts]]
+name = "Capital One Credit Card"
+institution = "capital_one"
+parser = "capital_one"
+account_type = "credit_card"
+input_dir = "input/capital-one"
+
+[[accounts]]
+name = "Elevations Credit Union"
+institution = "elevations"
+parser = "elevations"
+account_type = "checking"
+input_dir = "input/elevations"
