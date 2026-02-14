@@ -42,13 +42,7 @@ def generate_transaction_id(
     Returns:
         A 12-character lowercase hex string.
     """
-    raw = (
-        f"{institution}"
-        f"|{txn_date.isoformat()}"
-        f"|{merchant.strip().upper()}"
-        f"|{amount}"
-        f"|{row_ordinal}"
-    )
+    raw = f"{institution}|{txn_date.isoformat()}|{merchant.strip().upper()}|{amount}|{row_ordinal}"
     return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
 
