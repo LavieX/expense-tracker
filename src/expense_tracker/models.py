@@ -141,6 +141,29 @@ class MerchantRule:
 
 
 @dataclass
+class LearnResult:
+    """Result of a learn operation comparing original and corrected CSVs.
+
+    Returned by ``categorizer.learn()`` to summarize what changed in the
+    rule base after comparing the pipeline's output with user corrections.
+
+    Attributes:
+        added: Number of new learned rules added.
+        updated: Number of existing learned rules updated with new
+            categories.
+        skipped: Number of corrections skipped because a user rule
+            already covers the merchant pattern.
+        rules: The complete updated list of MerchantRule objects
+            (including both user and learned rules).
+    """
+
+    added: int = 0
+    updated: int = 0
+    skipped: int = 0
+    rules: list[MerchantRule] = field(default_factory=list)
+
+
+@dataclass
 class AccountConfig:
     """Configuration for a single bank account.
 
@@ -194,3 +217,23 @@ class AppConfig:
     llm_provider: str = "anthropic"
     llm_model: str = "claude-sonnet-4-20250514"
     llm_api_key_env: str = "ANTHROPIC_API_KEY"
+
+
+@dataclass
+class PipelineResult:
+    """Final result returned by the pipeline's ``run()`` function.
+
+    Aggregates the processed transactions along with all warnings and errors
+    accumulated across every pipeline stage.
+
+    Attributes:
+        transactions: The fully-processed list of transactions after all
+            stages have run (parsed, filtered, deduplicated, transfer-detected,
+            enriched, and categorized).
+        warnings: All non-fatal warnings from every stage, in order.
+        errors: All errors from every stage, in order.
+    """
+
+    transactions: list[Transaction] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
