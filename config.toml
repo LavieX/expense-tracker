@@ -1,0 +1,45 @@
+# Expense Tracker v3 configuration
+
+[general]
+output_dir = "output"
+enrichment_cache_dir = "enrichment-cache"
+
+[transfer_detection]
+keywords = ["PAYMENT", "AUTOPAY", "ONLINE PAYMENT", "PAYOFF"]
+date_window_days = 5
+
+[llm]
+provider = "anthropic"          # "anthropic" or "none"
+model = "claude-sonnet-4-20250514"
+api_key_env = "ANTHROPIC_API_KEY"  # Name of env var containing the API key
+
+# Account definitions
+[[accounts]]
+name = "Chase Credit Card"
+institution = "chase"
+parser = "chase"
+account_type = "credit_card"
+input_dir = "input/chase"
+
+[[accounts]]
+name = "Capital One Credit Card"
+institution = "capital_one"
+parser = "capital_one"
+account_type = "credit_card"
+input_dir = "input/capital-one"
+
+[[accounts]]
+name = "Elevations Credit Union"
+institution = "elevations"
+parser = "elevations"
+account_type = "checking"
+input_dir = "input/elevations"
+
+# Amazon enrichment accounts
+# Each account gets its own browser session and login.
+[[enrichment.amazon]]
+label = "primary"
+
+# Uncomment when wife's account is accessible for 2FA
+# [[enrichment.amazon]]
+# label = "secondary"

@@ -9,19 +9,248 @@ tolerance for RedCard 5% discounts).
 
 Enrichment cache files are written to ``enrichment-cache/{transaction_id}.json``
 in the format consumed by the pipeline's enrich stage.
+
+Selector strategy
+-----------------
+Target.com is a React SPA that frequently changes its CSS class names and
+``data-test`` attribute values. To maximise resilience the selectors below
+are **comma-separated lists** ordered from *most-likely current* to
+*known-legacy*. Playwright's ``query_selector`` / ``wait_for_selector``
+will match on the **first** selector that hits, so new selectors go in
+front and stale ones stay as fallbacks.
+
+When all selectors fail, the scraper dumps the page HTML to a debug file
+inside the cache/auth directory so the DOM can be inspected offline.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Consolidated CSS selectors -- new (2025-2026) first, legacy last.
+# Target uses ``data-test`` attributes on most interactive elements.
+# The product pages use a ``@web/<scope>/<Component>`` naming convention
+# (e.g. ``@web/site-top-of-funnel/ProductCardWrapper``). The order-history
+# page follows a similar pattern.
+# ---------------------------------------------------------------------------
+
+# Selector that matches *any* order card wrapper on the page.
+ORDER_CARD_SELECTOR = ", ".join([
+    # 2026 live selectors (from debug HTML dump)
+    'div[class*="orderCard"]',
+    'div[class*="OrderCard"]',
+    # 2025+ namespaced component selectors
+    '[data-test="@web/account/OrderCard"]',
+    '[data-test="@web/account/OrderHistoryCard"]',
+    '[data-test="@web/orders/OrderCard"]',
+    # Shorter attribute selectors (kebab-case + camelCase)
+    '[data-test="order-card"]',
+    '[data-test="orderCard"]',
+    # data-testid variants (React Testing Library convention)
+    '[data-testid="order-card"]',
+    '[data-testid="orderCard"]',
+    '[data-testid="order-history-card"]',
+    # Generic structural fallbacks
+    '[data-component="OrderCard"]',
+    'section[class*="OrderCard"]',
+    'div[class*="order-card"]',
+    # Broad semantic fallback -- an <article> or role wrapping each order
+    'article[data-test]',
+])
+
+# Selector that indicates the page has loaded (order cards *or* empty state).
+PAGE_READY_SELECTOR = ", ".join([
+    # 2026 live selectors (from debug HTML dump)
+    'div[class*="orderCard"]',
+    'div[class*="OrderCard"]',
+    '[data-test="tabOnline"]',
+    '[data-test="tabInstore"]',
+    '[data-test="order-details-link"]',
+    # New order-card selectors
+    '[data-test="@web/account/OrderCard"]',
+    '[data-test="@web/account/OrderHistoryCard"]',
+    '[data-test="@web/orders/OrderCard"]',
+    '[data-test="order-card"]',
+    '[data-test="orderCard"]',
+    '[data-testid="order-card"]',
+    '[data-testid="orderCard"]',
+    '[data-testid="order-history-card"]',
+    # Empty-state / no-orders indicators
+    '[data-test="@web/account/NoOrders"]',
+    '[data-test="@web/orders/EmptyState"]',
+    '[data-test="no-orders"]',
+    '[data-test="noOrders"]',
+    '[data-test="empty-orders"]',
+    '[data-testid="no-orders"]',
+    '[data-testid="empty-orders"]',
+    # Legacy fallbacks
+    '[data-component="OrderCard"]',
+    'section[class*="OrderCard"]',
+    'div[class*="order-card"]',
+    '.h-padding-t-tight',
+    # Very broad: the account page wrapper itself (ensures we at least
+    # detect the page rendered *something*).
+    '[data-test="@web/account/AccountOrdersPage"]',
+    '[data-test="@web/account/OrderHistoryPage"]',
+    '[data-test="accountOrdersPage"]',
+    '[data-testid="order-history-page"]',
+    'main[role="main"]',
+])
+
+# Sub-selectors used inside an order card element.
+ORDER_DATE_SELECTOR = ", ".join([
+    '[data-test="@web/account/OrderDate"]',
+    '[data-test="order-date"]',
+    '[data-test="orderDate"]',
+    '[data-testid="order-date"]',
+    '[data-testid="orderDate"]',
+    'time[datetime]',
+    'span[class*="orderDate"]',
+    'span[class*="OrderDate"]',
+    'div[class*="orderDate"]',
+    # Removed .h-text-sm — too broad, matches fulfillment status text
+])
+
+ORDER_NUMBER_SELECTOR = ", ".join([
+    '[data-test="@web/account/OrderNumber"]',
+    '[data-test="order-number"]',
+    '[data-test="orderNumber"]',
+    '[data-testid="order-number"]',
+    '[data-testid="orderNumber"]',
+    'span[class*="orderNumber"]',
+    'span[class*="OrderNumber"]',
+])
+
+ORDER_TOTAL_SELECTOR = ", ".join([
+    '[data-test="@web/account/OrderTotal"]',
+    '[data-test="order-total"]',
+    '[data-test="orderTotal"]',
+    '[data-testid="order-total"]',
+    '[data-testid="orderTotal"]',
+    'span[class*="orderTotal"]',
+    'span[class*="OrderTotal"]',
+    '.h-text-bold',
+])
+
+FULFILLMENT_TYPE_SELECTOR = ", ".join([
+    '[data-test="@web/account/FulfillmentType"]',
+    '[data-test="fulfillment-type"]',
+    '[data-test="fulfillmentType"]',
+    '[data-testid="fulfillment-type"]',
+    '[data-testid="fulfillmentType"]',
+    'span[class*="fulfillment"]',
+    'span[class*="Fulfillment"]',
+])
+
+PAYMENT_METHOD_SELECTOR = ", ".join([
+    '[data-test="@web/account/PaymentMethod"]',
+    '[data-test="payment-method"]',
+    '[data-test="paymentMethod"]',
+    '[data-testid="payment-method"]',
+    '[data-testid="paymentMethod"]',
+    'span[class*="payment"]',
+    'span[class*="Payment"]',
+])
+
+ORDER_ITEM_CARD_SELECTOR = ", ".join([
+    '[data-test="@web/account/OrderItemCard"]',
+    '[data-test="@web/account/OrderItem"]',
+    '[data-test="order-item-card"]',
+    '[data-test="orderItemCard"]',
+    '[data-testid="order-item-card"]',
+    '[data-testid="orderItemCard"]',
+    '[data-test="order-item"]',
+    '[data-testid="order-item"]',
+    'div[class*="OrderItem"]',
+    'div[class*="orderItem"]',
+    '.h-flex-item',
+])
+
+ITEM_NAME_SELECTOR = ", ".join([
+    '[data-test="@web/account/OrderItemName"]',
+    '[data-test="order-item-name"]',
+    '[data-test="orderItemName"]',
+    '[data-test="item-title"]',
+    '[data-test="itemTitle"]',
+    '[data-test="product-title"]',
+    '[data-testid="order-item-name"]',
+    '[data-testid="orderItemName"]',
+    '[data-testid="item-title"]',
+    '[data-testid="product-title"]',
+    'a[data-test="product-title"]',
+    'span[class*="itemName"]',
+    'span[class*="ItemName"]',
+    '.h-text-bold',
+])
+
+ITEM_PRICE_SELECTOR = ", ".join([
+    '[data-test="@web/account/OrderItemPrice"]',
+    '[data-test="order-item-price"]',
+    '[data-test="orderItemPrice"]',
+    '[data-test="item-price"]',
+    '[data-test="itemPrice"]',
+    '[data-test="current-price"]',
+    '[data-testid="order-item-price"]',
+    '[data-testid="orderItemPrice"]',
+    '[data-testid="item-price"]',
+    '[data-testid="current-price"]',
+    'span[class*="itemPrice"]',
+    'span[class*="ItemPrice"]',
+    'span[data-test="current-price"] span',
+])
+
+ITEM_QTY_SELECTOR = ", ".join([
+    '[data-test="@web/account/OrderItemQty"]',
+    '[data-test="order-item-qty"]',
+    '[data-test="orderItemQty"]',
+    '[data-test="item-qty"]',
+    '[data-test="itemQty"]',
+    '[data-testid="order-item-qty"]',
+    '[data-testid="orderItemQty"]',
+    '[data-testid="item-qty"]',
+    '[data-testid="itemQty"]',
+    'span[class*="itemQty"]',
+    'span[class*="ItemQty"]',
+    'span[class*="quantity"]',
+    'span[class*="Quantity"]',
+])
+
+# Tab selectors for Online / In-store order history tabs.
+TAB_ONLINE_SELECTOR = ", ".join([
+    '[data-test="tabOnline"]',
+    '#tab-Online',
+    'button[role="tab"][aria-controls*="Online"]',
+])
+
+TAB_INSTORE_SELECTOR = ", ".join([
+    '[data-test="tabInstore"]',
+    '#tab-Instore',
+    'button[role="tab"][aria-controls*="Instore"]',
+    'button[role="tab"][aria-controls*="In-store"]',
+])
+
+# Regex patterns used for text-based extraction from order card inner text.
+# Target's order cards put date, total, and order ID in plain ``<p>`` tags
+# with utility CSS classes (no ``data-test`` attributes), so CSS selectors
+# are unreliable. We fall back to regex on the card's visible text, similar
+# to the Amazon scraper's approach.
+_DATE_RE = re.compile(
+    r"(?:(?:January|February|March|April|May|June|July|August|September|"
+    r"October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|"
+    r"Nov|Dec)\s+\d{1,2},?\s+\d{4})"
+)
+_ORDER_TOTAL_RE = re.compile(r"\$[\d,]+\.\d{2}")
+_ORDER_ID_RE = re.compile(r"#(\d{9,})")
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -325,55 +554,103 @@ def scrape_target_orders(
 
         try:
             # Navigate to Target order history
-            page.goto("https://www.target.com/orders", wait_until="domcontentloaded")
-            time.sleep(2)
+            page.goto("https://www.target.com/orders", wait_until="networkidle")
 
-            # Check if we need to log in
-            if "login" in page.url.lower() or "account" in page.url.lower():
+            def _is_login_page() -> bool:
+                url = page.url.lower()
+                return any(
+                    kw in url
+                    for kw in ["login", "signin", "sign-in", "co-authenticate",
+                               "account/sign", "auth"]
+                )
+
+            def _wait_for_user_login() -> None:
                 logger.info(
                     "Login required. Please log in via the browser window. "
                     "Handle 2FA if prompted."
                 )
-                # Wait for user to complete login -- poll until we reach
-                # the orders page or a reasonable timeout (5 minutes)
                 login_timeout = 300  # seconds
                 start = time.time()
                 while time.time() - start < login_timeout:
-                    if "orders" in page.url.lower():
+                    url_lower = page.url.lower()
+                    past_login = not _is_login_page() and (
+                        "orders" in url_lower
+                        or "order-history" in url_lower
+                        or "target.com/account" in url_lower
+                        or "target.com/orders" in url_lower
+                    )
+                    if past_login:
                         break
                     time.sleep(2)
                 else:
                     raise RuntimeError(
                         "Login timed out after 5 minutes. Please try again."
                     )
-
-                # Save session for next time
                 context.storage_state(path=str(state_file))
                 logger.info("Saved Target session to %s", state_file)
+                # Let the orders page render after redirect
+                page.wait_for_load_state("networkidle")
+
+            # Check if we need to log in (retry up to 2 times in case
+            # the redirect to login happens after initial page load)
+            for _attempt in range(2):
+                if _is_login_page():
+                    _wait_for_user_login()
+                    break
+                # Give Target time to redirect if session is expired
+                time.sleep(3)
 
             # Wait for order history content to render (React SPA)
-            page.wait_for_selector(
-                '[data-test="orderCard"], [data-test="no-orders"], .h-padding-t-tight',
-                timeout=15000,
-            )
+            try:
+                page.wait_for_selector(
+                    PAGE_READY_SELECTOR,
+                    timeout=30000,
+                )
+            except Exception:
+                # If selectors failed, check if we got redirected to login
+                if _is_login_page():
+                    _wait_for_user_login()
+                    page.goto("https://www.target.com/orders", wait_until="networkidle")
+                    try:
+                        page.wait_for_selector(
+                            PAGE_READY_SELECTOR,
+                            timeout=30000,
+                        )
+                    except Exception:
+                        _dump_debug_html(page, auth_dir)
+                        raise
+                else:
+                    _dump_debug_html(page, auth_dir)
+                    raise
             time.sleep(2)  # Extra wait for dynamic content
 
-            # Scrape order cards
-            order_cards = page.query_selector_all('[data-test="orderCard"]')
-            if not order_cards:
-                logger.info("No order cards found on the page.")
-                # Save session even if no orders
-                context.storage_state(path=str(state_file))
-                return orders
+            # Scrape both Online and In-store tabs.
+            # Target shows two tabs on the order history page; in-store
+            # purchases (the bulk of big-box spending) live under a
+            # separate tab that must be clicked to load its content.
+            seen_order_ids: set[str] = set()
+            total_cards_found = 0
 
-            for card in order_cards:
-                try:
-                    order = _parse_order_card(page, card, month_start, month_end)
-                    if order is not None:
-                        orders.append(order)
-                except Exception as exc:
-                    logger.warning("Failed to parse order card: %s", exc)
-                    continue
+            for tab_name, tab_selector in [
+                ("In-store", TAB_INSTORE_SELECTOR),
+                ("Online", TAB_ONLINE_SELECTOR),
+            ]:
+                tab_orders = _scrape_tab(
+                    page, tab_name, tab_selector,
+                    month_start, month_end, seen_order_ids, auth_dir,
+                )
+                if tab_orders is not None:
+                    total_cards_found += tab_orders[1]
+                    orders.extend(tab_orders[0])
+
+            # If no tab buttons were found, scrape whatever is on the page
+            # (the page may not have tabs at all for some accounts).
+            if total_cards_found == 0 and not orders:
+                tab_result = _scrape_current_page_orders(
+                    page, month_start, month_end, seen_order_ids, auth_dir,
+                )
+                total_cards_found = tab_result[1]
+                orders.extend(tab_result[0])
 
             # Save session after successful scrape
             context.storage_state(path=str(state_file))
@@ -394,8 +671,143 @@ def scrape_target_orders(
     return orders
 
 
+def _scrape_tab(
+    page,
+    tab_name: str,
+    tab_selector: str,
+    month_start: date,
+    month_end: date,
+    seen_order_ids: set[str],
+    auth_dir: Path,
+) -> tuple[list[TargetOrder], int] | None:
+    """Click a tab and scrape the order cards that appear.
+
+    Args:
+        page: Playwright page object.
+        tab_name: Human-readable tab name for logging (e.g. "In-store").
+        tab_selector: CSS selector for the tab button.
+        month_start: First day of the target month.
+        month_end: Last day of the target month.
+        seen_order_ids: Set of order IDs already scraped (for dedup).
+        auth_dir: Directory for debug HTML dumps.
+
+    Returns:
+        Tuple of (orders, card_count) if the tab was found and clicked,
+        or None if the tab button was not present on the page.
+    """
+    tab_button = page.query_selector(tab_selector)
+    if not tab_button:
+        logger.debug("Tab %r not found on page (selector: %s)", tab_name, tab_selector)
+        return None
+
+    logger.info("Clicking %r tab", tab_name)
+    tab_button.click()
+
+    # Wait for the tab content to load.  Target's SPA replaces the panel
+    # content when the tab is activated; give it time to render.
+    try:
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except Exception:
+        pass  # networkidle may not fire if nothing loads (empty tab)
+    time.sleep(2)  # extra settle time for React re-render
+
+    return _scrape_current_page_orders(
+        page, month_start, month_end, seen_order_ids, auth_dir,
+    )
+
+
+def _scrape_current_page_orders(
+    page,
+    month_start: date,
+    month_end: date,
+    seen_order_ids: set[str],
+    auth_dir: Path,
+) -> tuple[list[TargetOrder], int]:
+    """Scrape order cards from the currently visible page content.
+
+    Args:
+        page: Playwright page object.
+        month_start: First day of the target month.
+        month_end: Last day of the target month.
+        seen_order_ids: Set of order IDs already scraped (mutated in-place
+            to add newly seen IDs for deduplication across tabs).
+        auth_dir: Directory for debug HTML dumps.
+
+    Returns:
+        Tuple of (orders_list, total_card_count).
+    """
+    orders: list[TargetOrder] = []
+    order_cards = page.query_selector_all(ORDER_CARD_SELECTOR)
+
+    if not order_cards:
+        logger.info("No order cards found on the current page/tab.")
+        return orders, 0
+
+    for card in order_cards:
+        try:
+            order = _parse_order_card(page, card, month_start, month_end)
+            if order is not None:
+                if order.order_id in seen_order_ids:
+                    logger.debug(
+                        "Skipping duplicate order %s", order.order_id,
+                    )
+                    continue
+                seen_order_ids.add(order.order_id)
+                orders.append(order)
+        except Exception as exc:
+            logger.warning("Failed to parse order card: %s", exc)
+            continue
+
+    # If we found cards but parsed 0 orders, dump HTML for debugging
+    if order_cards and not orders:
+        logger.warning(
+            "Found %d order cards but parsed 0 orders. "
+            "Dumping page HTML for selector debugging.",
+            len(order_cards),
+        )
+        _dump_debug_html(page, auth_dir)
+
+    return orders, len(order_cards)
+
+
+def _dump_debug_html(page, output_dir: Path) -> Path | None:
+    """Save the current page HTML to a debug file for offline inspection.
+
+    This is called when selectors fail so we can inspect the actual DOM
+    that Target served and update selectors accordingly.
+
+    Args:
+        page: Playwright page object.
+        output_dir: Directory to write the debug file into.
+
+    Returns:
+        Path to the written debug file, or None on failure.
+    """
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        debug_path = output_dir / "debug-target-page.html"
+        html_content = page.content()
+        debug_path.write_text(html_content, encoding="utf-8")
+        logger.error(
+            "Selector timeout -- dumped page HTML to %s (%d bytes). "
+            "Inspect this file to find current Target DOM selectors.",
+            debug_path,
+            len(html_content),
+        )
+        return debug_path
+    except Exception as dump_exc:
+        logger.warning("Failed to dump debug HTML: %s", dump_exc)
+        return None
+
+
 def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetOrder | None:
     """Parse a single order card element into a TargetOrder.
+
+    Target's 2025-2026 order cards place the date, total, and order number
+    in plain ``<p>`` elements with utility CSS classes -- no ``data-test``
+    attributes.  CSS-only selectors are therefore unreliable.  We extract the
+    card's full visible text and use regex to pull out the date, total, and
+    order ID, then fall back to CSS sub-selectors.
 
     Returns None if the order date is outside the target month range.
 
@@ -408,44 +820,72 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
     Returns:
         A TargetOrder, or None if the order is outside the date range.
     """
-    # Extract order date
-    date_el = card.query_selector('[data-test="orderDate"], .h-text-sm')
-    if not date_el:
-        return None
-    date_text = date_el.inner_text().strip()
-    order_date = _parse_target_date(date_text)
+    card_text = card.inner_text()
+
+    # --- Extract order date ---
+    # Strategy 1: regex on inner text (primary -- works with 2025-2026 DOM)
+    order_date: date | None = None
+    date_match = _DATE_RE.search(card_text)
+    if date_match:
+        order_date = _parse_target_date(date_match.group(0))
+
+    # Strategy 2: CSS selector fallback (if regex missed)
     if order_date is None:
+        date_el = card.query_selector(ORDER_DATE_SELECTOR)
+        if date_el:
+            date_text = (
+                date_el.get_attribute("datetime") or date_el.inner_text()
+            ).strip()
+            order_date = _parse_target_date(date_text)
+
+    if order_date is None:
+        logger.warning(
+            "Could not extract date from Target order card. Card text: %s",
+            card_text[:200],
+        )
         return None
 
     # Filter to target month
     if order_date < month_start or order_date > month_end:
         return None
 
-    # Extract order ID
-    order_id_el = card.query_selector('[data-test="orderNumber"]')
-    order_id = order_id_el.inner_text().strip() if order_id_el else f"unknown-{order_date.isoformat()}"
+    # --- Extract order ID ---
+    order_id = ""
+    id_match = _ORDER_ID_RE.search(card_text)
+    if id_match:
+        order_id = id_match.group(1)
 
-    # Extract order total
-    total_el = card.query_selector('[data-test="orderTotal"], .h-text-bold')
+    if not order_id:
+        order_id_el = card.query_selector(ORDER_NUMBER_SELECTOR)
+        if order_id_el:
+            raw = order_id_el.inner_text().strip()
+            order_id = raw.lstrip("#")
+
+    if not order_id:
+        order_id = f"unknown-{order_date.isoformat()}"
+
+    # --- Extract order total ---
     order_total = Decimal("0")
-    if total_el:
-        total_text = total_el.inner_text().strip()
-        order_total = _parse_price(total_text)
+    total_match = _ORDER_TOTAL_RE.search(card_text)
+    if total_match:
+        order_total = _parse_price(total_match.group(0))
 
-    # Extract fulfillment type
-    fulfillment_el = card.query_selector('[data-test="fulfillmentType"]')
-    fulfillment_type = ""
-    if fulfillment_el:
-        ft_text = fulfillment_el.inner_text().strip().lower()
-        if "ship" in ft_text:
-            fulfillment_type = "shipped"
-        elif "pick" in ft_text:
-            fulfillment_type = "pickup"
-        elif "deliver" in ft_text:
-            fulfillment_type = "delivery"
+    if order_total == 0:
+        total_el = card.query_selector(ORDER_TOTAL_SELECTOR)
+        if total_el:
+            order_total = _parse_price(total_el.inner_text().strip())
 
-    # Extract payment method
-    payment_el = card.query_selector('[data-test="paymentMethod"]')
+    # --- Extract fulfillment type ---
+    fulfillment_type = _extract_fulfillment_type(card_text)
+    if not fulfillment_type:
+        fulfillment_el = card.query_selector(FULFILLMENT_TYPE_SELECTOR)
+        if fulfillment_el:
+            fulfillment_type = _extract_fulfillment_type(
+                fulfillment_el.inner_text()
+            )
+
+    # --- Extract payment method ---
+    payment_el = card.query_selector(PAYMENT_METHOD_SELECTOR)
     payment_method = ""
     if payment_el:
         payment_method = payment_el.inner_text().strip().lower()
@@ -476,18 +916,12 @@ def _scrape_order_items(page, card) -> list[TargetLineItem]:
     items: list[TargetLineItem] = []
 
     # Try to find items directly on the card
-    item_els = card.query_selector_all('[data-test="orderItemCard"], .h-flex-item')
+    item_els = card.query_selector_all(ORDER_ITEM_CARD_SELECTOR)
 
     for item_el in item_els:
-        name_el = item_el.query_selector(
-            '[data-test="orderItemName"], [data-test="itemTitle"], .h-text-bold'
-        )
-        price_el = item_el.query_selector(
-            '[data-test="orderItemPrice"], [data-test="itemPrice"]'
-        )
-        qty_el = item_el.query_selector(
-            '[data-test="orderItemQty"], [data-test="itemQty"]'
-        )
+        name_el = item_el.query_selector(ITEM_NAME_SELECTOR)
+        price_el = item_el.query_selector(ITEM_PRICE_SELECTOR)
+        qty_el = item_el.query_selector(ITEM_QTY_SELECTOR)
 
         if not name_el:
             continue
@@ -507,6 +941,31 @@ def _scrape_order_items(page, card) -> list[TargetLineItem]:
     return items
 
 
+def _extract_fulfillment_type(text: str) -> str:
+    """Determine the fulfillment type from free-form text.
+
+    Looks for shipping, pickup, and delivery keywords while ignoring
+    unrelated text (e.g. store names, status labels).
+
+    Args:
+        text: Inner text from the card or fulfillment element.
+
+    Returns:
+        One of ``"shipped"``, ``"pickup"``, ``"delivery"``, or ``""``
+        if no fulfillment type could be determined.
+    """
+    lower = text.lower()
+    # Check pickup first -- "Picked up" contains "pick" and should not
+    # be confused with shipping keywords.
+    if "pick" in lower:
+        return "pickup"
+    if "ship" in lower or "delivered" in lower:
+        return "shipped"
+    if "deliver" in lower:
+        return "delivery"
+    return ""
+
+
 def _parse_target_date(text: str) -> date | None:
     """Parse a date string from Target's order history page.
 
@@ -518,9 +977,6 @@ def _parse_target_date(text: str) -> date | None:
     Returns:
         Parsed date, or None if parsing fails.
     """
-    import re
-    from datetime import datetime
-
     text = text.strip()
 
     # Remove leading labels like "Ordered: " or "Order placed "

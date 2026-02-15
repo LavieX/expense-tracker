@@ -418,7 +418,9 @@ class AmazonEnrichmentProvider:
             logger.info("Scraping Amazon orders (%s)...", label)
 
             try:
-                orders = self._scrape_orders(first_day, last_day, auth_dir)
+                orders = self._scrape_orders(
+                    first_day, last_day, auth_dir, cache_dir=cache_dir,
+                )
                 # Tag each order with the account label.
                 for order in orders:
                     order.account_label = label
@@ -529,6 +531,7 @@ class AmazonEnrichmentProvider:
         first_day: date,
         last_day: date,
         auth_dir: Path,
+        cache_dir: Path | None = None,
     ) -> list[AmazonOrder]:
         """Scrape Amazon order history using Playwright.
 
@@ -540,6 +543,8 @@ class AmazonEnrichmentProvider:
             first_day: First day of the target month.
             last_day: Last day of the target month.
             auth_dir: Directory for storing/loading browser auth state.
+            cache_dir: Optional cache directory for saving debug HTML dumps
+                when selectors fail to match.
 
         Returns:
             List of :class:`AmazonOrder` objects within the date range.
@@ -587,7 +592,9 @@ class AmazonEnrichmentProvider:
                         break
 
                 # Scrape orders across all pages.
-                orders = self._scrape_all_pages(page, first_day, last_day)
+                orders = self._scrape_all_pages(
+                    page, first_day, last_day, cache_dir=cache_dir,
+                )
 
                 # Save updated session state.
                 context.storage_state(path=str(storage_state_file))
@@ -633,6 +640,7 @@ class AmazonEnrichmentProvider:
         page: "Page",  # noqa: F821
         first_day: date,
         last_day: date,
+        cache_dir: Path | None = None,
     ) -> list[AmazonOrder]:
         """Scrape orders from all pages of Amazon order history.
 
@@ -643,6 +651,8 @@ class AmazonEnrichmentProvider:
             page: Playwright page positioned on the order history.
             first_day: Start of the target date range.
             last_day: End of the target date range.
+            cache_dir: Optional cache directory for saving debug HTML dumps
+                when selectors fail to match.
 
         Returns:
             List of :class:`AmazonOrder` objects within the date range.
@@ -654,18 +664,62 @@ class AmazonEnrichmentProvider:
             page_num += 1
             logger.info("Scraping order history page %d", page_num)
 
-            # Wait for order cards to load.
-            page.wait_for_selector(
-                ".order-card, .js-order-card, .order, .your-orders-content-container",
-                timeout=30_000,
-            )
+            # Wait for order cards to load.  Amazon uses several different
+            # CSS class patterns depending on the layout served; try them
+            # from newest to oldest.
+            try:
+                page.wait_for_selector(
+                    "div.order-card, div.order, "
+                    ".js-order-card, "
+                    "[data-component='orderCard'], "
+                    "#ordersContainer, "
+                    ".your-orders-content-container",
+                    timeout=30_000,
+                )
+            except Exception:
+                # Dump current page HTML to a debug file so we can inspect
+                # Amazon's actual DOM on future failures.
+                if cache_dir is not None:
+                    debug_path = cache_dir / "debug-amazon-page.html"
+                    try:
+                        cache_dir.mkdir(parents=True, exist_ok=True)
+                        debug_path.write_text(
+                            page.content(), encoding="utf-8"
+                        )
+                        logger.error(
+                            "Order card selector timed out. "
+                            "Page HTML saved to %s for debugging.",
+                            debug_path,
+                        )
+                    except Exception as dump_exc:
+                        logger.error(
+                            "Failed to save debug HTML: %s", dump_exc
+                        )
+                raise
 
             page_orders = self._scrape_page_orders(page, first_day, last_day)
             all_orders.extend(page_orders)
 
-            # Check for next page.
+            # If first page found no orders, dump HTML for debugging.
+            if page_num == 1 and not page_orders and cache_dir is not None:
+                debug_path = cache_dir / "debug-amazon-page.html"
+                try:
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    debug_path.write_text(page.content(), encoding="utf-8")
+                    logger.warning(
+                        "Page 1 had 0 parseable orders. "
+                        "HTML saved to %s for selector debugging.",
+                        debug_path,
+                    )
+                except Exception as dump_exc:
+                    logger.warning("Failed to save debug HTML: %s", dump_exc)
+
+            # Check for next page.  Amazon's pagination uses <ul class="a-pagination">
+            # with the last <li> containing the "next" link.
             next_button = page.query_selector(
-                "li.a-last a, .a-pagination .a-last a"
+                "ul.a-pagination li.a-last a, "
+                ".a-pagination .a-last a, "
+                "li.a-last a"
             )
             if next_button is None:
                 break
@@ -701,9 +755,15 @@ class AmazonEnrichmentProvider:
         """
         orders: list[AmazonOrder] = []
 
-        # Amazon order cards have various CSS class patterns.
+        # Amazon order cards have various CSS class patterns.  The
+        # ``div.order-card`` and ``div.order`` selectors are the primary
+        # ones used in Amazon's current (2025) layout.  Older selectors
+        # like ``.js-order-card`` are kept as fallbacks since Amazon may
+        # serve different HTML to different users.
         order_cards = page.query_selector_all(
-            ".order-card, .js-order-card, .order"
+            "div.order-card, div.order, "
+            ".js-order-card, "
+            "[data-component='orderCard']"
         )
 
         for card in order_cards:
@@ -725,65 +785,74 @@ class AmazonEnrichmentProvider:
         """Parse a single order card element into an :class:`AmazonOrder`.
 
         Returns ``None`` if essential fields cannot be extracted.
+
+        Strategy: Amazon's order card HTML uses generic CSS classes
+        (e.g. ``a-color-secondary``) for both labels and values, making
+        CSS-only selection unreliable.  We extract the card's full text
+        and use regex to pull out the date, total, and order ID.  CSS
+        selectors are used as targeted fallbacks.
         """
-        # Extract order date.
-        date_el = card.query_selector(
-            ".order-info .a-color-secondary, "
-            "[data-testid='order-date'], "
-            ".value[data-testid]"
-        )
-        if date_el is None:
-            return None
+        card_text = card.inner_text()
 
-        date_text = date_el.inner_text().strip()
-        order_date = _parse_date(date_text)
+        # --- Extract order date via regex on card text ---
+        order_date = None
+        date_match = re.search(
+            r"(?:Order\s*placed|Ordered\s*on)[:\s]*"
+            r"(\w+\s+\d{1,2},?\s+\d{4})",
+            card_text, re.IGNORECASE,
+        )
+        if date_match:
+            order_date = _parse_date(date_match.group(1))
         if order_date is None:
-            # Try extracting date from a broader text context.
-            info_text = card.query_selector(".order-info")
-            if info_text:
-                # Look for date pattern in the info block text.
-                full_text = info_text.inner_text()
-                date_match = re.search(
-                    r"(\w+ \d{1,2},?\s+\d{4})", full_text
-                )
-                if date_match:
-                    order_date = _parse_date(date_match.group(1))
-            if order_date is None:
-                return None
-
-        # Extract order total.
-        total_el = card.query_selector(
-            ".order-info .a-color-secondary + .a-color-secondary, "
-            "[data-testid='order-total'], "
-            ".yohtmlc-order-total .value"
-        )
-        if total_el is None:
-            # Try broader selector.
-            total_el = card.query_selector(".a-column .value, .order-total")
-
-        if total_el is None:
+            # Broader fallback: any "Month Day, Year" in the card text.
+            date_match = re.search(
+                r"((?:January|February|March|April|May|June|July|August|"
+                r"September|October|November|December)\s+\d{1,2},?\s+\d{4})",
+                card_text,
+            )
+            if date_match:
+                order_date = _parse_date(date_match.group(1))
+        if order_date is None:
             return None
 
-        total_text = total_el.inner_text().strip()
-        order_total = _parse_price(total_text)
+        # --- Extract order total via regex on card text ---
+        total_match = re.search(
+            r"Total[:\s]*\$?([\d,]+\.\d{2})", card_text, re.IGNORECASE,
+        )
+        if total_match:
+            order_total = _parse_price(total_match.group(0))
+        else:
+            # Broader fallback: first dollar amount in the card.
+            price_match = re.search(r"\$[\d,]+\.\d{2}", card_text)
+            order_total = _parse_price(price_match.group(0)) if price_match else Decimal("0")
+        if order_total == 0:
+            return None
 
-        # Extract order ID.
+        # --- Extract order ID ---
         order_id = ""
+        # Try CSS selector first (reliable when present).
         order_id_el = card.query_selector(
-            "[data-testid='order-id'], "
-            ".yohtmlc-order-id .value, "
-            "bdi"
+            ".yohtmlc-order-id span[dir='ltr'], "
+            ".yohtmlc-order-id bdi[dir='ltr'], "
+            "[data-component='orderId'], "
+            ".yohtmlc-order-id .value"
         )
         if order_id_el:
             order_id = order_id_el.inner_text().strip()
-        else:
-            # Try to find order ID in links.
+        if not order_id:
+            # Try link href.
             order_link = card.query_selector("a[href*='orderID=']")
             if order_link:
                 href = order_link.get_attribute("href") or ""
                 id_match = re.search(r"orderID=([^&]+)", href)
                 if id_match:
                     order_id = id_match.group(1)
+        if not order_id:
+            # Regex fallback on card text: Amazon order IDs are
+            # 3-7-7 digit patterns like 113-4763190-6893819.
+            id_match = re.search(r"\d{3}-\d{7}-\d{7}", card_text)
+            if id_match:
+                order_id = id_match.group(0)
 
         if not order_id:
             # Fallback: generate a pseudo-ID from date and total.
@@ -809,16 +878,32 @@ class AmazonEnrichmentProvider:
         """
         items: list[AmazonLineItem] = []
 
-        # Look for individual item rows.
+        # Look for individual item rows within the order card.  Amazon's
+        # 2025 layout uses ``div.item-box`` for each line item.  Each
+        # item-box contains a product image, title
+        # (``.yohtmlc-product-title``), and action buttons.  Individual
+        # item prices are NOT shown on the order history list page, so
+        # we distribute the order total evenly across items.
+        #
+        # IMPORTANT: Do NOT include ``.a-fixed-left-grid-inner`` here --
+        # it is a child of ``.item-box`` and would cause duplicate matches.
         item_els = card.query_selector_all(
-            ".yohtmlc-item, .a-fixed-left-grid-inner, "
+            ".item-box, "
+            "div.yohtmlc-item, "
+            "[data-component='purchasedItems'] .a-fixed-left-grid, "
             "[data-testid='order-item']"
         )
 
         for item_el in item_els:
-            # Extract item name.
+            # Extract item name.  Prefer the specific product-title class
+            # (``.yohtmlc-product-title``) first; fall back
+            # to a product-page link (``/dp/``) to avoid picking up
+            # unrelated ``a-link-normal`` elements (e.g. "Buy it again").
             name_el = item_el.query_selector(
-                ".a-link-normal, .yohtmlc-product-title, "
+                ".yohtmlc-product-title, "
+                "[data-component='itemTitle'], "
+                ".yohtmlc-item a, "
+                ".a-link-normal[href*='/dp/'], "
                 "[data-testid='item-title']"
             )
             if name_el is None:
@@ -827,9 +912,15 @@ class AmazonEnrichmentProvider:
             if not name:
                 continue
 
-            # Extract item price.
+            # Extract item price.  Note: Amazon's 2025 order history page
+            # does NOT display individual item prices (only the order total
+            # in the header).  These selectors are kept for forward
+            # compatibility in case Amazon adds per-item pricing later.
             price_el = item_el.query_selector(
-                ".a-color-price, .yohtmlc-item-price, "
+                ".a-color-price, "
+                ".yohtmlc-item-price, "
+                "[data-component='unitPrice'] .a-text-price :not(.a-offscreen), "
+                ".yohtmlc-item .a-color-price, "
                 "[data-testid='item-price']"
             )
             price = Decimal("0")
@@ -842,7 +933,11 @@ class AmazonEnrichmentProvider:
         if not items:
             # Try to get at least the product name.
             product_el = card.query_selector(
-                ".a-link-normal[href*='/dp/'], .a-link-normal[href*='/gp/']"
+                "[data-component='itemTitle'], "
+                ".yohtmlc-item a, "
+                ".yohtmlc-product-title, "
+                ".a-link-normal[href*='/dp/'], "
+                ".a-link-normal[href*='/gp/']"
             )
             product_name = "Amazon order"
             if product_el:
