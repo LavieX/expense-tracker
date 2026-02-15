@@ -567,21 +567,24 @@ class AmazonEnrichmentProvider:
                 year = first_day.year
                 page.goto(ORDER_HISTORY_URL.format(year=year), wait_until="domcontentloaded")
 
-                # Check if we need to log in.
-                if self._needs_login(page):
-                    logger.info(
-                        "Amazon login required. Please log in using the browser window."
-                    )
-                    self._wait_for_login(page)
-                    # Save session state after successful login.
-                    context.storage_state(path=str(storage_state_file))
-                    logger.info("Saved Amazon session state")
+                # Log in if needed (may require multiple rounds for 2FA).
+                for _attempt in range(3):
+                    if self._needs_login(page):
+                        logger.info(
+                            "Amazon login required. Please log in using the browser window."
+                        )
+                        self._wait_for_login(page)
+                        # Save session state after successful login.
+                        context.storage_state(path=str(storage_state_file))
+                        logger.info("Saved Amazon session state")
 
-                    # Navigate to order history after login.
-                    page.goto(
-                        ORDER_HISTORY_URL.format(year=year),
-                        wait_until="domcontentloaded",
-                    )
+                        # Navigate to order history after login.
+                        page.goto(
+                            ORDER_HISTORY_URL.format(year=year),
+                            wait_until="domcontentloaded",
+                        )
+                    else:
+                        break
 
                 # Scrape orders across all pages.
                 orders = self._scrape_all_pages(page, first_day, last_day)
@@ -596,22 +599,33 @@ class AmazonEnrichmentProvider:
         return orders
 
     def _needs_login(self, page: "Page") -> bool:  # noqa: F821
-        """Check if the current page is an Amazon login page."""
+        """Check if the current page is an Amazon auth/challenge page."""
         url = page.url.lower()
-        return "signin" in url or "ap/signin" in url
+        auth_indicators = [
+            "/ap/signin", "/ap/mfa", "/ap/challenge", "/ap/cvf",
+            "/ap/forgotpassword",
+        ]
+        return any(indicator in url for indicator in auth_indicators)
 
     def _wait_for_login(self, page: "Page") -> None:  # noqa: F821
         """Wait for the user to complete Amazon login (including 2FA).
 
-        Blocks until the page URL no longer contains 'signin', indicating
-        the user has successfully authenticated.
+        Blocks until the page URL is no longer an auth/challenge page,
+        indicating the user has successfully authenticated.
         """
         logger.info("Waiting for login to complete (handle 2FA if prompted)...")
-        # Wait up to 5 minutes for the user to complete login.
-        page.wait_for_url(
-            lambda url: "signin" not in url.lower() and "ap/signin" not in url.lower(),
-            timeout=300_000,
-        )
+
+        auth_indicators = [
+            "/ap/signin", "/ap/mfa", "/ap/challenge", "/ap/cvf",
+            "/ap/forgotpassword",
+        ]
+
+        def _is_past_auth(url: str) -> bool:
+            lower = url.lower()
+            return not any(ind in lower for ind in auth_indicators)
+
+        # Wait up to 5 minutes for the user to complete login + 2FA.
+        page.wait_for_url(_is_past_auth, timeout=300_000)
         logger.info("Login completed successfully")
 
     def _scrape_all_pages(
@@ -642,8 +656,8 @@ class AmazonEnrichmentProvider:
 
             # Wait for order cards to load.
             page.wait_for_selector(
-                ".order-card, .js-order-card, .order",
-                timeout=15_000,
+                ".order-card, .js-order-card, .order, .your-orders-content-container",
+                timeout=30_000,
             )
 
             page_orders = self._scrape_page_orders(page, first_day, last_day)
