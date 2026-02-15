@@ -323,6 +323,7 @@ def enrich(month: str, source: str, headless: bool, verbose: bool, debug: bool) 
 
     elif source_lower == "amazon":
         from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+        from expense_tracker.models import AmazonAccountConfig
 
         provider = AmazonEnrichmentProvider()
 
@@ -345,10 +346,22 @@ def enrich(month: str, source: str, headless: bool, verbose: bool, debug: bool) 
                 "amount": a,
             })
 
+        # Determine Amazon accounts from config.
+        # If no [[enrichment.amazon]] sections exist, fall back to a single
+        # default account for backward compatibility.
+        amazon_accounts = config.amazon_accounts
+        if not amazon_accounts:
+            amazon_accounts = [AmazonAccountConfig(label="default")]
+
+        if verbose:
+            labels = [a.label for a in amazon_accounts]
+            click.echo(f"Amazon accounts to scrape: {', '.join(labels)}")
+
         try:
-            enrich_result = provider.enrich(
+            enrich_result = provider.enrich_multi_account(
                 month=month,
                 root=root,
+                amazon_accounts=amazon_accounts,
                 transactions=normalized_txns,
             )
         except ImportError as exc:
@@ -361,9 +374,25 @@ def enrich(month: str, source: str, headless: bool, verbose: bool, debug: bool) 
         # Print summary
         click.echo()
         click.echo("== Amazon Enrichment Summary ==")
-        click.echo(f"  Orders found:         {enrich_result.orders_found}")
-        click.echo(f"  Orders matched:       {enrich_result.orders_matched}")
-        click.echo(f"  Orders unmatched:     {enrich_result.orders_unmatched}")
+
+        # Show per-account breakdown if there are multiple accounts.
+        if enrich_result.account_stats and len(enrich_result.account_stats) > 1:
+            for stat in enrich_result.account_stats:
+                click.echo(
+                    f'  Account "{stat.label}": '
+                    f"{stat.orders_found} orders found, "
+                    f"{stat.orders_matched} matched"
+                )
+            click.echo(
+                f"  Total: {enrich_result.orders_found} orders, "
+                f"{enrich_result.orders_matched} matched, "
+                f"{enrich_result.orders_unmatched} unmatched"
+            )
+        else:
+            click.echo(f"  Orders found:         {enrich_result.orders_found}")
+            click.echo(f"  Orders matched:       {enrich_result.orders_matched}")
+            click.echo(f"  Orders unmatched:     {enrich_result.orders_unmatched}")
+
         click.echo(f"  Cache files written:  {enrich_result.cache_files_written}")
 
         if enrich_result.unmatched_details:

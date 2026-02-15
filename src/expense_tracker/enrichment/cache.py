@@ -70,6 +70,8 @@ class EnrichmentData:
         source: Enrichment provider name, e.g. ``"amazon"``.
         order_id: Source-specific order identifier.
         matched_at: ISO timestamp of when the match was made.
+        account_label: Label of the source account (e.g. ``"primary"``),
+            useful for multi-account enrichment providers.
         items: Line items from the source, formatted for the pipeline.
     """
 
@@ -77,6 +79,7 @@ class EnrichmentData:
     source: str
     order_id: str = ""
     matched_at: str = ""
+    account_label: str = ""
     items: list[EnrichmentItem] = field(default_factory=list)
 
 
@@ -152,6 +155,7 @@ def read_cache_file(cache_file: Path) -> EnrichmentData | None:
         source=raw.get("source", ""),
         order_id=raw.get("order_id", ""),
         matched_at=raw.get("matched_at", ""),
+        account_label=raw.get("account_label", ""),
         items=items,
     )
 

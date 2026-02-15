@@ -19,7 +19,7 @@ else:
 
 import tomli_w
 
-from expense_tracker.models import AccountConfig, AppConfig, MerchantRule
+from expense_tracker.models import AccountConfig, AmazonAccountConfig, AppConfig, MerchantRule
 
 # ---------------------------------------------------------------------------
 # Default file content -- matches architecture doc Section 7 exactly
@@ -62,6 +62,18 @@ institution = "elevations"
 parser = "elevations"
 account_type = "checking"
 input_dir = "input/elevations"
+
+# Amazon enrichment accounts (optional)
+# Uncomment and configure for multi-account Amazon enrichment.
+# Each account gets its own browser session and login.
+# If no [[enrichment.amazon]] sections are defined, a single
+# default account is assumed.
+#
+# [[enrichment.amazon]]
+# label = "primary"
+#
+# [[enrichment.amazon]]
+# label = "secondary"
 """
 
 _DEFAULT_CATEGORIES_TOML = """\
@@ -184,6 +196,19 @@ def load_config(root: Path) -> AppConfig:
         for a in data.get("accounts", [])
     ]
 
+    # Parse [[enrichment.amazon]] sections for multi-account support.
+    enrichment = data.get("enrichment", {})
+    amazon_sections = enrichment.get("amazon", [])
+    # TOML [[enrichment.amazon]] produces a list of dicts.
+    # A single [enrichment.amazon] table (not array) would produce a dict --
+    # normalize to a list for uniform handling.
+    if isinstance(amazon_sections, dict):
+        amazon_sections = [amazon_sections]
+    amazon_accounts = [
+        AmazonAccountConfig(label=section.get("label", "default"))
+        for section in amazon_sections
+    ]
+
     return AppConfig(
         accounts=accounts,
         output_dir=general.get("output_dir", "output"),
@@ -195,6 +220,7 @@ def load_config(root: Path) -> AppConfig:
         llm_provider=llm.get("provider", "anthropic"),
         llm_model=llm.get("model", "claude-sonnet-4-20250514"),
         llm_api_key_env=llm.get("api_key_env", "ANTHROPIC_API_KEY"),
+        amazon_accounts=amazon_accounts,
     )
 
 

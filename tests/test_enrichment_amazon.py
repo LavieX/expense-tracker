@@ -725,7 +725,7 @@ class TestEnrichCLI:
         )
         assert result.exit_code != 0
 
-    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider.enrich")
+    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider.enrich_multi_account")
     @patch("expense_tracker.pipeline.run")
     @patch("expense_tracker.config.load_rules")
     @patch("expense_tracker.config.load_categories")
@@ -803,7 +803,7 @@ class TestEnrichCLI:
         assert "Cache files written" in result.output
         assert "Unmatched orders" in result.output
 
-    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider.enrich")
+    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider.enrich_multi_account")
     @patch("expense_tracker.pipeline.run")
     @patch("expense_tracker.config.load_rules")
     @patch("expense_tracker.config.load_categories")
@@ -931,3 +931,710 @@ class TestEnrichmentPipelineIntegration:
         assert result.transactions[1].merchant == "AMAZON - Book"
         assert result.transactions[1].amount == Decimal("-15.00")
         assert result.transactions[1].split_from == "txn_amazon_001"
+
+
+# ===========================================================================
+# Multi-account support tests
+# ===========================================================================
+
+
+class TestMultiAccountOrderMerging:
+    """Tests for merging orders from multiple Amazon accounts before matching."""
+
+    def test_orders_from_two_accounts_merged_and_matched(self) -> None:
+        """Orders from two separate accounts are merged and matched against
+        a single transaction list."""
+        # Orders from account "primary".
+        primary_orders = [
+            AmazonOrder(
+                order_id="111-1111111-1111111",
+                order_date=date(2025, 11, 5),
+                order_total=Decimal("50.00"),
+                items=[AmazonLineItem(name="Widget", price=Decimal("50.00"))],
+                account_label="primary",
+            ),
+        ]
+        # Orders from account "secondary".
+        secondary_orders = [
+            AmazonOrder(
+                order_id="222-2222222-2222222",
+                order_date=date(2025, 11, 12),
+                order_total=Decimal("30.00"),
+                items=[AmazonLineItem(name="Book", price=Decimal("30.00"))],
+                account_label="secondary",
+            ),
+        ]
+
+        merged = primary_orders + secondary_orders
+
+        txns = [
+            {
+                "transaction_id": "txn_001",
+                "date": date(2025, 11, 6),
+                "amount": Decimal("-50.00"),
+                "merchant": "AMAZON.COM",
+            },
+            {
+                "transaction_id": "txn_002",
+                "date": date(2025, 11, 13),
+                "amount": Decimal("-30.00"),
+                "merchant": "AMZN MKTP US",
+            },
+        ]
+
+        matches = match_orders_to_transactions(merged, txns)
+        assert len(matches) == 2
+
+        matched_labels = {o.account_label for o, _ in matches}
+        assert "primary" in matched_labels
+        assert "secondary" in matched_labels
+
+    def test_cross_account_ambiguity_handled(self) -> None:
+        """When two accounts have identical orders (same amount, same date),
+        they are treated as ambiguous and not matched."""
+        primary_order = AmazonOrder(
+            order_id="111-1111111-1111111",
+            order_date=date(2025, 11, 5),
+            order_total=Decimal("50.00"),
+            items=[AmazonLineItem(name="Widget A", price=Decimal("50.00"))],
+            account_label="primary",
+        )
+        secondary_order = AmazonOrder(
+            order_id="222-2222222-2222222",
+            order_date=date(2025, 11, 5),
+            order_total=Decimal("50.00"),
+            items=[AmazonLineItem(name="Widget B", price=Decimal("50.00"))],
+            account_label="secondary",
+        )
+
+        txns = [
+            {
+                "transaction_id": "txn_001",
+                "date": date(2025, 11, 5),
+                "amount": Decimal("-50.00"),
+                "merchant": "AMAZON.COM",
+            },
+        ]
+
+        matches = match_orders_to_transactions(
+            [primary_order, secondary_order], txns
+        )
+        # Both orders compete for the same transaction -- ambiguous.
+        assert len(matches) == 0
+
+    def test_account_label_preserved_in_enrichment_data(self) -> None:
+        """The account_label is propagated to EnrichmentData when building
+        cache entries from matched orders."""
+        order = AmazonOrder(
+            order_id="111-1111111-1111111",
+            order_date=date(2025, 11, 5),
+            order_total=Decimal("25.00"),
+            items=[AmazonLineItem(name="Gadget", price=Decimal("25.00"))],
+            account_label="secondary",
+        )
+
+        data = build_enrichment_data(
+            order=order,
+            transaction_id="txn_001",
+            original_merchant="AMAZON.COM",
+        )
+        assert data.account_label == "secondary"
+
+    def test_explicit_account_label_overrides_order_label(self) -> None:
+        """When an explicit account_label is passed to build_enrichment_data,
+        it takes precedence over the order's label."""
+        order = AmazonOrder(
+            order_id="111-1111111-1111111",
+            order_date=date(2025, 11, 5),
+            order_total=Decimal("25.00"),
+            items=[AmazonLineItem(name="Gadget", price=Decimal("25.00"))],
+            account_label="secondary",
+        )
+
+        data = build_enrichment_data(
+            order=order,
+            transaction_id="txn_001",
+            original_merchant="AMAZON.COM",
+            account_label="primary",
+        )
+        assert data.account_label == "primary"
+
+    def test_account_label_persisted_in_cache(self, tmp_path: Path) -> None:
+        """The account_label is written to and read back from cache files."""
+        cache_dir = tmp_path / "enrichment-cache"
+
+        data = EnrichmentData(
+            transaction_id="test_label",
+            source="amazon",
+            order_id="111-1111111-1111111",
+            account_label="primary",
+            items=[
+                EnrichmentItem(
+                    name="Widget",
+                    price=30.0,
+                    merchant="AMAZON - Widget",
+                    description="Widget",
+                    amount="-30.00",
+                ),
+            ],
+        )
+
+        written_path = write_cache_file(cache_dir, data)
+        result = read_cache_file(written_path)
+
+        assert result is not None
+        assert result.account_label == "primary"
+
+    def test_account_label_absent_in_legacy_cache(self, tmp_path: Path) -> None:
+        """Legacy cache files without account_label are read with empty label."""
+        import json
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+
+        legacy_data = {
+            "transaction_id": "legacy_001",
+            "source": "amazon",
+            "order_id": "999-9999999-9999999",
+            "matched_at": "2025-11-01T12:00:00",
+            "items": [
+                {
+                    "name": "Old Item",
+                    "price": 10.0,
+                    "quantity": 1,
+                    "merchant": "AMAZON - Old Item",
+                    "description": "Old Item",
+                    "amount": "-10.00",
+                }
+            ],
+        }
+
+        cache_file = cache_dir / "legacy_001.json"
+        cache_file.write_text(json.dumps(legacy_data), encoding="utf-8")
+
+        result = read_cache_file(cache_file)
+        assert result is not None
+        assert result.account_label == ""
+
+
+class TestBackwardCompatibility:
+    """Tests that single-account (no config sections) behavior is preserved."""
+
+    def test_no_amazon_config_uses_single_default_account(self) -> None:
+        """When no [[enrichment.amazon]] sections exist in config, the
+        AppConfig has an empty amazon_accounts list."""
+        from expense_tracker.models import AppConfig
+
+        config = AppConfig()
+        assert config.amazon_accounts == []
+
+    def test_config_loading_without_enrichment_section(self, tmp_path: Path) -> None:
+        """load_config with no enrichment section returns empty amazon_accounts."""
+        from expense_tracker.config import load_config
+
+        config_toml = tmp_path / "config.toml"
+        config_toml.write_text(
+            '[general]\noutput_dir = "output"\n'
+            'enrichment_cache_dir = "enrichment-cache"\n',
+            encoding="utf-8",
+        )
+        config = load_config(tmp_path)
+        assert config.amazon_accounts == []
+
+    def test_config_loading_with_single_amazon_account(self, tmp_path: Path) -> None:
+        """load_config with one [[enrichment.amazon]] section."""
+        from expense_tracker.config import load_config
+
+        config_toml = tmp_path / "config.toml"
+        config_toml.write_text(
+            '[general]\noutput_dir = "output"\n'
+            'enrichment_cache_dir = "enrichment-cache"\n\n'
+            '[[enrichment.amazon]]\nlabel = "primary"\n',
+            encoding="utf-8",
+        )
+        config = load_config(tmp_path)
+        assert len(config.amazon_accounts) == 1
+        assert config.amazon_accounts[0].label == "primary"
+
+    def test_config_loading_with_multiple_amazon_accounts(self, tmp_path: Path) -> None:
+        """load_config with two [[enrichment.amazon]] sections."""
+        from expense_tracker.config import load_config
+
+        config_toml = tmp_path / "config.toml"
+        config_toml.write_text(
+            '[general]\noutput_dir = "output"\n'
+            'enrichment_cache_dir = "enrichment-cache"\n\n'
+            '[[enrichment.amazon]]\nlabel = "primary"\n\n'
+            '[[enrichment.amazon]]\nlabel = "secondary"\n',
+            encoding="utf-8",
+        )
+        config = load_config(tmp_path)
+        assert len(config.amazon_accounts) == 2
+        assert config.amazon_accounts[0].label == "primary"
+        assert config.amazon_accounts[1].label == "secondary"
+
+    def test_single_enrich_delegates_to_multi_account(self) -> None:
+        """The backward-compatible enrich() method delegates to
+        enrich_multi_account() with a single default account."""
+        from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+
+        provider = AmazonEnrichmentProvider()
+        # Patch enrich_multi_account to capture the call.
+        with patch.object(provider, "enrich_multi_account") as mock_multi:
+            mock_multi.return_value = MagicMock()
+            provider.enrich(month="2025-11", root=Path("/tmp/test"))
+            mock_multi.assert_called_once()
+            call_args = mock_multi.call_args
+            accounts = call_args.kwargs.get(
+                "amazon_accounts", call_args.args[2] if len(call_args.args) > 2 else None
+            )
+            assert len(accounts) == 1
+            assert accounts[0].label == "default"
+
+
+class TestPerAccountSessionStorage:
+    """Tests for per-account auth state directory paths."""
+
+    def test_default_account_uses_legacy_path(self) -> None:
+        """The 'default' account uses .auth/amazon/ for backward compatibility."""
+        from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+
+        provider = AmazonEnrichmentProvider()
+        auth_dir = provider._auth_dir_for_account(Path("/project"), "default")
+        assert auth_dir == Path("/project/.auth/amazon")
+
+    def test_named_account_uses_labeled_path(self) -> None:
+        """Named accounts use .auth/amazon-{label}/ paths."""
+        from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+
+        provider = AmazonEnrichmentProvider()
+
+        auth_dir_primary = provider._auth_dir_for_account(Path("/project"), "primary")
+        assert auth_dir_primary == Path("/project/.auth/amazon-primary")
+
+        auth_dir_secondary = provider._auth_dir_for_account(Path("/project"), "secondary")
+        assert auth_dir_secondary == Path("/project/.auth/amazon-secondary")
+
+    def test_each_account_gets_separate_directory(self, tmp_path: Path) -> None:
+        """Multiple accounts create separate auth directories."""
+        from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+
+        provider = AmazonEnrichmentProvider()
+
+        dir1 = provider._auth_dir_for_account(tmp_path, "primary")
+        dir2 = provider._auth_dir_for_account(tmp_path, "secondary")
+
+        assert dir1 != dir2
+        assert "primary" in str(dir1)
+        assert "secondary" in str(dir2)
+
+
+class TestMultiAccountCLISummary:
+    """Tests for per-account CLI summary output with multiple accounts."""
+
+    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider.enrich_multi_account")
+    @patch("expense_tracker.pipeline.run")
+    @patch("expense_tracker.config.load_rules")
+    @patch("expense_tracker.config.load_categories")
+    @patch("expense_tracker.config.load_config")
+    def test_multi_account_summary_output(
+        self,
+        mock_load_config: MagicMock,
+        mock_load_categories: MagicMock,
+        mock_load_rules: MagicMock,
+        mock_pipeline_run: MagicMock,
+        mock_enrich: MagicMock,
+    ) -> None:
+        """CLI shows per-account breakdown when multiple accounts are configured."""
+        from expense_tracker.enrichment import (
+            AccountEnrichmentStats,
+            EnrichmentResult,
+        )
+        from expense_tracker.models import (
+            AccountConfig,
+            AmazonAccountConfig,
+            AppConfig,
+            PipelineResult,
+        )
+
+        mock_load_config.return_value = AppConfig(
+            accounts=[
+                AccountConfig(
+                    name="Chase CC",
+                    institution="chase",
+                    parser="chase",
+                    account_type="credit_card",
+                    input_dir="input/chase",
+                )
+            ],
+            enrichment_cache_dir="enrichment-cache",
+            amazon_accounts=[
+                AmazonAccountConfig(label="primary"),
+                AmazonAccountConfig(label="secondary"),
+            ],
+        )
+        mock_load_categories.return_value = []
+        mock_load_rules.return_value = []
+        mock_pipeline_run.return_value = PipelineResult(transactions=[])
+
+        mock_enrich.return_value = EnrichmentResult(
+            orders_found=23,
+            orders_matched=18,
+            orders_unmatched=5,
+            cache_files_written=18,
+            account_stats=[
+                AccountEnrichmentStats(label="primary", orders_found=15, orders_matched=12),
+                AccountEnrichmentStats(label="secondary", orders_found=8, orders_matched=6),
+            ],
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["enrich", "--month", "2025-11", "--source", "amazon"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Amazon Enrichment Summary" in result.output
+        assert 'Account "primary"' in result.output
+        assert "15 orders found" in result.output
+        assert "12 matched" in result.output
+        assert 'Account "secondary"' in result.output
+        assert "8 orders found" in result.output
+        assert "6 matched" in result.output
+        assert "Total: 23 orders" in result.output
+        assert "18 matched" in result.output
+        assert "5 unmatched" in result.output
+
+    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider.enrich_multi_account")
+    @patch("expense_tracker.pipeline.run")
+    @patch("expense_tracker.config.load_rules")
+    @patch("expense_tracker.config.load_categories")
+    @patch("expense_tracker.config.load_config")
+    def test_single_account_summary_uses_legacy_format(
+        self,
+        mock_load_config: MagicMock,
+        mock_load_categories: MagicMock,
+        mock_load_rules: MagicMock,
+        mock_pipeline_run: MagicMock,
+        mock_enrich: MagicMock,
+    ) -> None:
+        """CLI uses the original summary format when only one account is configured."""
+        from expense_tracker.enrichment import (
+            AccountEnrichmentStats,
+            EnrichmentResult,
+        )
+        from expense_tracker.models import (
+            AccountConfig,
+            AppConfig,
+            PipelineResult,
+        )
+
+        mock_load_config.return_value = AppConfig(
+            accounts=[
+                AccountConfig(
+                    name="Chase CC",
+                    institution="chase",
+                    parser="chase",
+                    account_type="credit_card",
+                    input_dir="input/chase",
+                )
+            ],
+            enrichment_cache_dir="enrichment-cache",
+        )
+        mock_load_categories.return_value = []
+        mock_load_rules.return_value = []
+        mock_pipeline_run.return_value = PipelineResult(transactions=[])
+
+        mock_enrich.return_value = EnrichmentResult(
+            orders_found=5,
+            orders_matched=3,
+            orders_unmatched=2,
+            cache_files_written=3,
+            account_stats=[
+                AccountEnrichmentStats(label="default", orders_found=5, orders_matched=3),
+            ],
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["enrich", "--month", "2025-11", "--source", "amazon"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        # Single account -- should use legacy summary format, not per-account breakdown.
+        assert "Orders found" in result.output
+        assert "Orders matched" in result.output
+        assert 'Account "' not in result.output
+        assert "Total:" not in result.output
+
+
+class TestMultiAccountEnrichProvider:
+    """Tests for the AmazonEnrichmentProvider.enrich_multi_account method."""
+
+    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider._scrape_orders")
+    def test_enrich_multi_account_scrapes_each_account(
+        self, mock_scrape: MagicMock, tmp_path: Path
+    ) -> None:
+        """enrich_multi_account calls _scrape_orders once per account."""
+        from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+        from expense_tracker.models import AmazonAccountConfig
+
+        mock_scrape.return_value = []
+
+        provider = AmazonEnrichmentProvider()
+        accounts = [
+            AmazonAccountConfig(label="primary"),
+            AmazonAccountConfig(label="secondary"),
+        ]
+
+        provider.enrich_multi_account(
+            month="2025-11",
+            root=tmp_path,
+            amazon_accounts=accounts,
+            transactions=[],
+        )
+
+        assert mock_scrape.call_count == 2
+
+    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider._scrape_orders")
+    def test_enrich_multi_account_merges_orders_before_matching(
+        self, mock_scrape: MagicMock, tmp_path: Path
+    ) -> None:
+        """Orders from different accounts are merged and matched together."""
+        from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+        from expense_tracker.models import AmazonAccountConfig
+
+        primary_orders = [
+            AmazonOrder(
+                order_id="111-1111111-1111111",
+                order_date=date(2025, 11, 5),
+                order_total=Decimal("50.00"),
+                items=[AmazonLineItem(name="Widget", price=Decimal("50.00"))],
+            ),
+        ]
+        secondary_orders = [
+            AmazonOrder(
+                order_id="222-2222222-2222222",
+                order_date=date(2025, 11, 12),
+                order_total=Decimal("30.00"),
+                items=[AmazonLineItem(name="Book", price=Decimal("30.00"))],
+            ),
+        ]
+
+        mock_scrape.side_effect = [primary_orders, secondary_orders]
+
+        txns = [
+            {
+                "transaction_id": "txn_001",
+                "date": date(2025, 11, 6),
+                "amount": Decimal("-50.00"),
+                "merchant": "AMAZON.COM",
+            },
+            {
+                "transaction_id": "txn_002",
+                "date": date(2025, 11, 13),
+                "amount": Decimal("-30.00"),
+                "merchant": "AMZN MKTP US",
+            },
+        ]
+
+        provider = AmazonEnrichmentProvider()
+        accounts = [
+            AmazonAccountConfig(label="primary"),
+            AmazonAccountConfig(label="secondary"),
+        ]
+
+        result = provider.enrich_multi_account(
+            month="2025-11",
+            root=tmp_path,
+            amazon_accounts=accounts,
+            transactions=txns,
+        )
+
+        assert result.orders_found == 2
+        assert result.orders_matched == 2
+        assert result.orders_unmatched == 0
+        assert result.cache_files_written == 2
+
+    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider._scrape_orders")
+    def test_enrich_multi_account_per_account_stats(
+        self, mock_scrape: MagicMock, tmp_path: Path
+    ) -> None:
+        """Per-account stats correctly reflect orders found and matched per account."""
+        from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+        from expense_tracker.models import AmazonAccountConfig
+
+        primary_orders = [
+            AmazonOrder(
+                order_id="111-1111111-1111111",
+                order_date=date(2025, 11, 5),
+                order_total=Decimal("50.00"),
+                items=[AmazonLineItem(name="Widget", price=Decimal("50.00"))],
+            ),
+            AmazonOrder(
+                order_id="111-2222222-2222222",
+                order_date=date(2025, 11, 8),
+                order_total=Decimal("99.99"),
+                items=[AmazonLineItem(name="Keyboard", price=Decimal("99.99"))],
+            ),
+        ]
+        secondary_orders = [
+            AmazonOrder(
+                order_id="222-3333333-3333333",
+                order_date=date(2025, 11, 12),
+                order_total=Decimal("30.00"),
+                items=[AmazonLineItem(name="Book", price=Decimal("30.00"))],
+            ),
+        ]
+
+        mock_scrape.side_effect = [primary_orders, secondary_orders]
+
+        txns = [
+            {
+                "transaction_id": "txn_001",
+                "date": date(2025, 11, 6),
+                "amount": Decimal("-50.00"),
+                "merchant": "AMAZON.COM",
+            },
+            {
+                "transaction_id": "txn_002",
+                "date": date(2025, 11, 13),
+                "amount": Decimal("-30.00"),
+                "merchant": "AMZN MKTP US",
+            },
+        ]
+
+        provider = AmazonEnrichmentProvider()
+        accounts = [
+            AmazonAccountConfig(label="primary"),
+            AmazonAccountConfig(label="secondary"),
+        ]
+
+        result = provider.enrich_multi_account(
+            month="2025-11",
+            root=tmp_path,
+            amazon_accounts=accounts,
+            transactions=txns,
+        )
+
+        assert len(result.account_stats) == 2
+
+        primary_stat = next(s for s in result.account_stats if s.label == "primary")
+        assert primary_stat.orders_found == 2
+        assert primary_stat.orders_matched == 1
+
+        secondary_stat = next(s for s in result.account_stats if s.label == "secondary")
+        assert secondary_stat.orders_found == 1
+        assert secondary_stat.orders_matched == 1
+
+        assert result.orders_found == 3
+        assert result.orders_matched == 2
+        assert result.orders_unmatched == 1
+
+    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider._scrape_orders")
+    def test_enrich_multi_account_partial_failure(
+        self, mock_scrape: MagicMock, tmp_path: Path
+    ) -> None:
+        """If one account's scraping fails, the other account's orders
+        are still processed and matched."""
+        from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+        from expense_tracker.models import AmazonAccountConfig
+
+        good_orders = [
+            AmazonOrder(
+                order_id="111-1111111-1111111",
+                order_date=date(2025, 11, 5),
+                order_total=Decimal("50.00"),
+                items=[AmazonLineItem(name="Widget", price=Decimal("50.00"))],
+            ),
+        ]
+
+        mock_scrape.side_effect = [
+            good_orders,
+            RuntimeError("Browser crashed"),
+        ]
+
+        txns = [
+            {
+                "transaction_id": "txn_001",
+                "date": date(2025, 11, 6),
+                "amount": Decimal("-50.00"),
+                "merchant": "AMAZON.COM",
+            },
+        ]
+
+        provider = AmazonEnrichmentProvider()
+        accounts = [
+            AmazonAccountConfig(label="primary"),
+            AmazonAccountConfig(label="secondary"),
+        ]
+
+        result = provider.enrich_multi_account(
+            month="2025-11",
+            root=tmp_path,
+            amazon_accounts=accounts,
+            transactions=txns,
+        )
+
+        # The primary account's orders should still be matched.
+        assert result.orders_found == 1
+        assert result.orders_matched == 1
+
+        # Errors should report the secondary account failure.
+        assert len(result.errors) == 1
+        assert "secondary" in result.errors[0]
+        assert "Browser crashed" in result.errors[0]
+
+        # Per-account stats should show both accounts.
+        assert len(result.account_stats) == 2
+
+    @patch("expense_tracker.enrichment.amazon.AmazonEnrichmentProvider._scrape_orders")
+    def test_enrich_multi_account_cache_includes_account_label(
+        self, mock_scrape: MagicMock, tmp_path: Path
+    ) -> None:
+        """Cache files written by multi-account enrichment include the
+        account_label in their metadata."""
+        from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+        from expense_tracker.models import AmazonAccountConfig
+
+        orders = [
+            AmazonOrder(
+                order_id="111-1111111-1111111",
+                order_date=date(2025, 11, 5),
+                order_total=Decimal("50.00"),
+                items=[AmazonLineItem(name="Widget", price=Decimal("50.00"))],
+            ),
+        ]
+
+        mock_scrape.return_value = orders
+
+        txns = [
+            {
+                "transaction_id": "txn_001",
+                "date": date(2025, 11, 6),
+                "amount": Decimal("-50.00"),
+                "merchant": "AMAZON.COM",
+            },
+        ]
+
+        provider = AmazonEnrichmentProvider()
+        accounts = [AmazonAccountConfig(label="primary")]
+
+        result = provider.enrich_multi_account(
+            month="2025-11",
+            root=tmp_path,
+            amazon_accounts=accounts,
+            transactions=txns,
+        )
+
+        assert result.cache_files_written == 1
+
+        # Read the cache file and verify account_label is present.
+        cache_file = tmp_path / "enrichment-cache" / "txn_001.json"
+        cache_data = read_cache_file(cache_file)
+        assert cache_data is not None
+        assert cache_data.account_label == "primary"

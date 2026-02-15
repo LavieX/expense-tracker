@@ -78,12 +78,15 @@ class AmazonOrder:
         order_date: Date the order was placed.
         order_total: Total charge for the order.
         items: Individual line items in the order.
+        account_label: Label of the Amazon account this order was scraped
+            from. Used for multi-account enrichment tracking.
     """
 
     order_id: str
     order_date: date
     order_total: Decimal
     items: list[AmazonLineItem] = field(default_factory=list)
+    account_label: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +202,7 @@ def build_enrichment_data(
     order: AmazonOrder,
     transaction_id: str,
     original_merchant: str,
+    account_label: str = "",
 ) -> EnrichmentData:
     """Convert a matched Amazon order into an :class:`EnrichmentData` for caching.
 
@@ -210,6 +214,8 @@ def build_enrichment_data(
         order: The matched Amazon order.
         transaction_id: The bank transaction ID to associate with.
         original_merchant: The original merchant name from the bank transaction.
+        account_label: Optional label of the Amazon account this order came
+            from (for multi-account enrichment tracking).
 
     Returns:
         An :class:`EnrichmentData` ready to be written to the cache.
@@ -232,10 +238,14 @@ def build_enrichment_data(
             )
         )
 
+    # Use the order's account_label if not explicitly provided.
+    label = account_label or order.account_label
+
     return EnrichmentData(
         transaction_id=transaction_id,
         source="amazon",
         order_id=order.order_id,
+        account_label=label,
         items=items,
     )
 
@@ -298,17 +308,37 @@ class AmazonEnrichmentProvider:
 
     Uses Playwright in headful mode to allow the user to handle 2FA/CAPTCHA
     during login.  Browser state (cookies, session) is persisted under
-    ``.auth/amazon/`` in the project directory.
+    ``.auth/amazon/`` (single account) or ``.auth/amazon-{label}/``
+    (multi-account) in the project directory.
 
     Usage::
 
         provider = AmazonEnrichmentProvider()
         result = provider.enrich("2025-11", project_root)
+
+    For multi-account usage::
+
+        from expense_tracker.models import AmazonAccountConfig
+        accounts = [
+            AmazonAccountConfig(label="primary"),
+            AmazonAccountConfig(label="secondary"),
+        ]
+        result = provider.enrich_multi_account("2025-11", project_root, accounts)
     """
 
     @property
     def name(self) -> str:
         return "amazon"
+
+    def _auth_dir_for_account(self, root: Path, label: str) -> Path:
+        """Return the auth state directory for a given account label.
+
+        Single ``"default"`` accounts use the legacy path ``.auth/amazon/``.
+        Named accounts use ``.auth/amazon-{label}/``.
+        """
+        if label == "default":
+            return root / AUTH_STATE_DIR
+        return root / f".auth/amazon-{label}"
 
     def enrich(
         self,
@@ -316,7 +346,10 @@ class AmazonEnrichmentProvider:
         root: Path,
         transactions: list[dict] | None = None,
     ) -> "EnrichmentResult":
-        """Run Amazon enrichment for *month*.
+        """Run Amazon enrichment for *month* with a single default account.
+
+        This is the backward-compatible entry point. For multi-account
+        enrichment, use :meth:`enrich_multi_account`.
 
         Args:
             month: Target month as ``"YYYY-MM"`` string.
@@ -327,32 +360,105 @@ class AmazonEnrichmentProvider:
         Returns:
             An :class:`EnrichmentResult` summarizing what was found and matched.
         """
-        from expense_tracker.enrichment import EnrichmentResult
+        from expense_tracker.models import AmazonAccountConfig
+
+        return self.enrich_multi_account(
+            month=month,
+            root=root,
+            amazon_accounts=[AmazonAccountConfig(label="default")],
+            transactions=transactions,
+        )
+
+    def enrich_multi_account(
+        self,
+        month: str,
+        root: Path,
+        amazon_accounts: list,
+        transactions: list[dict] | None = None,
+    ) -> "EnrichmentResult":
+        """Run Amazon enrichment across multiple accounts for *month*.
+
+        Scrapes each configured Amazon account sequentially, merges all
+        orders into a single list, then runs the matching algorithm
+        against the combined transaction list.
+
+        Args:
+            month: Target month as ``"YYYY-MM"`` string.
+            root: Project root directory.
+            amazon_accounts: List of :class:`AmazonAccountConfig` objects
+                defining the accounts to scrape.
+            transactions: Optional list of transaction dicts to match against.
+                If not provided, transactions are loaded from the pipeline.
+
+        Returns:
+            An :class:`EnrichmentResult` with per-account stats.
+        """
+        from expense_tracker.enrichment import (
+            AccountEnrichmentStats,
+            EnrichmentResult,
+        )
 
         first_day, last_day = _parse_month_range(month)
-        auth_dir = root / AUTH_STATE_DIR
-        auth_dir.mkdir(parents=True, exist_ok=True)
         cache_dir = root / "enrichment-cache"
 
         # Load transactions if not provided.
         if transactions is None:
             transactions = self._load_transactions(month, root)
 
-        # Scrape Amazon orders.
-        try:
-            orders = self._scrape_orders(first_day, last_day, auth_dir)
-        except Exception as exc:
-            logger.error("Amazon scraping failed: %s", exc)
+        # Scrape orders from each Amazon account sequentially.
+        all_orders: list[AmazonOrder] = []
+        account_stats: list[AccountEnrichmentStats] = []
+        errors: list[str] = []
+
+        for acct in amazon_accounts:
+            label = acct.label
+            auth_dir = self._auth_dir_for_account(root, label)
+            auth_dir.mkdir(parents=True, exist_ok=True)
+
+            logger.info("Scraping Amazon orders (%s)...", label)
+
+            try:
+                orders = self._scrape_orders(first_day, last_day, auth_dir)
+                # Tag each order with the account label.
+                for order in orders:
+                    order.account_label = label
+                all_orders.extend(orders)
+                # Record per-account found count (matched count updated below).
+                account_stats.append(
+                    AccountEnrichmentStats(
+                        label=label,
+                        orders_found=len(orders),
+                        orders_matched=0,
+                    )
+                )
+            except Exception as exc:
+                logger.error("Amazon scraping failed (%s): %s", label, exc)
+                errors.append(f"Amazon scraping failed ({label}): {exc}")
+                account_stats.append(
+                    AccountEnrichmentStats(label=label, orders_found=0, orders_matched=0)
+                )
+
+        if not all_orders and errors:
             return EnrichmentResult(
-                errors=[f"Amazon scraping failed: {exc}"],
+                errors=errors,
+                account_stats=account_stats,
             )
 
-        # Match orders to transactions.
-        matched = match_orders_to_transactions(orders, transactions)
+        # Match merged orders to transactions.
+        matched = match_orders_to_transactions(all_orders, transactions)
+
+        # Update per-account matched counts.
+        matched_by_label: dict[str, int] = {}
+        for order, _ in matched:
+            matched_by_label[order.account_label] = (
+                matched_by_label.get(order.account_label, 0) + 1
+            )
+        for stat in account_stats:
+            stat.orders_matched = matched_by_label.get(stat.label, 0)
 
         # Identify unmatched orders.
         matched_order_ids = {order.order_id for order, _ in matched}
-        unmatched_orders = [o for o in orders if o.order_id not in matched_order_ids]
+        unmatched_orders = [o for o in all_orders if o.order_id not in matched_order_ids]
 
         unmatched_details = []
         for order in unmatched_orders:
@@ -376,11 +482,13 @@ class AmazonEnrichmentProvider:
             files_written += 1
 
         return EnrichmentResult(
-            orders_found=len(orders),
+            orders_found=len(all_orders),
             orders_matched=len(matched),
             orders_unmatched=len(unmatched_orders),
             cache_files_written=files_written,
             unmatched_details=unmatched_details,
+            errors=errors,
+            account_stats=account_stats,
         )
 
     def _load_transactions(self, month: str, root: Path) -> list[dict]:

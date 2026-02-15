@@ -17,6 +17,7 @@ from typing import Protocol, runtime_checkable
 from expense_tracker.enrichment.cache import EnrichmentData, EnrichmentItem
 
 __all__ = [
+    "AccountEnrichmentStats",
     "EnrichmentData",
     "EnrichmentItem",
     "EnrichmentProvider",
@@ -27,18 +28,35 @@ __all__ = [
 
 
 @dataclass
+class AccountEnrichmentStats:
+    """Per-account statistics from a multi-account enrichment run.
+
+    Attributes:
+        label: Account label (e.g. "primary", "secondary", "default").
+        orders_found: Number of orders found for this account.
+        orders_matched: Number of orders matched for this account.
+    """
+
+    label: str = ""
+    orders_found: int = 0
+    orders_matched: int = 0
+
+
+@dataclass
 class EnrichmentResult:
     """Summary of an enrichment run.
 
     Attributes:
-        orders_found: Number of orders/records found in the source.
-        orders_matched: Number of orders successfully matched to transactions.
-        orders_unmatched: Number of orders that could not be matched.
+        orders_found: Total number of orders/records found across all accounts.
+        orders_matched: Total number of orders successfully matched to transactions.
+        orders_unmatched: Total number of orders that could not be matched.
         cache_files_written: Number of enrichment cache files written.
         unmatched_details: Human-readable descriptions of unmatched orders
             for user review.
         warnings: Non-fatal issues encountered during enrichment.
         errors: Fatal issues encountered during enrichment.
+        account_stats: Per-account breakdown of orders found and matched.
+            Empty for single-account (backward-compatible) runs.
     """
 
     orders_found: int = 0
@@ -48,6 +66,7 @@ class EnrichmentResult:
     unmatched_details: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    account_stats: list[AccountEnrichmentStats] = field(default_factory=list)
 
 
 @runtime_checkable

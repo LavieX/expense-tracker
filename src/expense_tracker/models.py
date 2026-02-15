@@ -187,6 +187,21 @@ class AccountConfig:
 
 
 @dataclass
+class AmazonAccountConfig:
+    """Configuration for a single Amazon account used for enrichment.
+
+    When multiple Amazon accounts are configured, each gets its own label
+    and separate browser session state.
+
+    Attributes:
+        label: Short identifier for this account, e.g. "primary" or
+            "secondary". Used in session storage paths and CLI output.
+    """
+
+    label: str = "default"
+
+
+@dataclass
 class AppConfig:
     """Top-level application configuration loaded from config.toml.
 
@@ -205,6 +220,9 @@ class AppConfig:
         llm_model: Model identifier, e.g. "claude-sonnet-4-20250514".
         llm_api_key_env: Name of the environment variable containing
             the API key.
+        amazon_accounts: List of configured Amazon accounts for
+            enrichment. If empty, a single default account is assumed
+            for backward compatibility.
     """
 
     accounts: list[AccountConfig] = field(default_factory=list)
@@ -217,6 +235,7 @@ class AppConfig:
     llm_provider: str = "anthropic"
     llm_model: str = "claude-sonnet-4-20250514"
     llm_api_key_env: str = "ANTHROPIC_API_KEY"
+    amazon_accounts: list[AmazonAccountConfig] = field(default_factory=list)
 
 
 @dataclass
