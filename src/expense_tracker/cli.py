@@ -233,6 +233,169 @@ def learn(original: str, corrected: str, verbose: bool) -> None:
 
 
 @cli.command()
+@click.option("--month", required=True, help="Target month in YYYY-MM format.")
+@click.option(
+    "--source",
+    required=True,
+    type=click.Choice(["amazon", "target"], case_sensitive=False),
+    help="Enrichment source to scrape (amazon or target).",
+)
+@click.option("--headless", is_flag=True, default=False, help="Run browser in headless mode.")
+@click.option("--verbose", is_flag=True, default=False, help="Detailed progress output.")
+@click.option("--debug", is_flag=True, default=False, help="Developer-level diagnostics.")
+def enrich(month: str, source: str, headless: bool, verbose: bool, debug: bool) -> None:
+    """Scrape retailer order history and match to bank transactions."""
+    _configure_logging(verbose, debug)
+
+    try:
+        month = _validate_month(month)
+    except click.BadParameter as exc:
+        click.echo(f"Error: {exc.format_message()}", err=True)
+        sys.exit(1)
+
+    root = Path.cwd()
+
+    # Load configuration
+    try:
+        from expense_tracker.config import load_config
+
+        config = load_config(root)
+    except FileNotFoundError as exc:
+        click.echo(
+            f"Error: {exc}. Run 'expense init' to create the project structure.",
+            err=True,
+        )
+        sys.exit(1)
+    except Exception as exc:
+        click.echo(f"Error loading configuration: {exc}", err=True)
+        sys.exit(1)
+
+    cache_dir = root / config.enrichment_cache_dir
+
+    # Build transaction list from pipeline parse stage for matching
+    from expense_tracker.pipeline import run as pipeline_run
+
+    try:
+        from expense_tracker.config import load_categories, load_rules
+
+        categories = load_categories(root)
+        rules = load_rules(root)
+        pipeline_result = pipeline_run(
+            month=month, config=config, categories=categories,
+            rules=rules, root=root,
+        )
+        # Convert Transaction objects to dicts for the enrichment provider
+        txn_dicts = [
+            {
+                "transaction_id": t.transaction_id,
+                "date": t.date.isoformat(),
+                "amount": str(t.amount),
+                "merchant": t.merchant,
+            }
+            for t in pipeline_result.transactions
+            if not t.is_transfer
+        ]
+    except Exception as exc:
+        click.echo(f"Error loading transactions: {exc}", err=True)
+        sys.exit(1)
+
+    if verbose:
+        click.echo(f"Found {len(txn_dicts)} non-transfer transactions for {month}")
+
+    source_lower = source.lower()
+
+    if source_lower == "target":
+        from expense_tracker.enrichment.target import enrich_target
+
+        try:
+            result = enrich_target(
+                month=month,
+                transactions=txn_dicts,
+                cache_dir=cache_dir,
+                headless=headless,
+            )
+        except ImportError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            sys.exit(1)
+        except Exception as exc:
+            click.echo(f"Error during Target enrichment: {exc}", err=True)
+            sys.exit(1)
+
+    elif source_lower == "amazon":
+        from expense_tracker.enrichment.amazon import AmazonEnrichmentProvider
+
+        provider = AmazonEnrichmentProvider()
+
+        # Convert ISO date strings back to date objects and amounts to Decimal
+        # for the matching algorithm.
+        from datetime import date as date_cls
+        from decimal import Decimal as Dec
+
+        normalized_txns = []
+        for txn in txn_dicts:
+            d = txn["date"]
+            if isinstance(d, str):
+                d = date_cls.fromisoformat(d)
+            a = txn["amount"]
+            if isinstance(a, str):
+                a = Dec(a)
+            normalized_txns.append({
+                **txn,
+                "date": d,
+                "amount": a,
+            })
+
+        try:
+            enrich_result = provider.enrich(
+                month=month,
+                root=root,
+                transactions=normalized_txns,
+            )
+        except ImportError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            sys.exit(1)
+        except Exception as exc:
+            click.echo(f"Error during Amazon enrichment: {exc}", err=True)
+            sys.exit(1)
+
+        # Print summary
+        click.echo()
+        click.echo("== Amazon Enrichment Summary ==")
+        click.echo(f"  Orders found:         {enrich_result.orders_found}")
+        click.echo(f"  Orders matched:       {enrich_result.orders_matched}")
+        click.echo(f"  Orders unmatched:     {enrich_result.orders_unmatched}")
+        click.echo(f"  Cache files written:  {enrich_result.cache_files_written}")
+
+        if enrich_result.unmatched_details:
+            click.echo()
+            click.echo("Unmatched orders (review manually):")
+            for detail in enrich_result.unmatched_details:
+                click.echo(f"  - {detail}")
+
+        if enrich_result.errors:
+            click.echo()
+            for err in enrich_result.errors:
+                click.echo(f"Error: {err}", err=True)
+
+        click.echo()
+        return
+
+    else:
+        click.echo(f"Error: Unknown source: {source!r}", err=True)
+        sys.exit(1)
+
+    # Print summary (for Target and other dict-returning providers)
+    click.echo()
+    click.echo(f"== {source.title()} Enrichment Summary ==")
+    click.echo(f"  Orders scraped:       {result['orders_scraped']}")
+    click.echo(f"  Orders matched:       {result['orders_matched']}")
+    click.echo(f"  Cache files written:  {result['cache_files_written']}")
+    if result.get("skipped_gift_card", 0) > 0:
+        click.echo(f"  Gift card (skipped):  {result['skipped_gift_card']}")
+    click.echo()
+
+
+@cli.command()
 @click.option(
     "--dir", "target_dir", default=".", type=click.Path(), help="Directory to initialize."
 )
