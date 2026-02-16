@@ -42,3 +42,10 @@ label = "primary"
 
 [[enrichment.amazon]]
 label = "secondary"
+
+# Google Sheets integration (optional)
+# Configure this section to enable pushing data to Google Sheets.
+[sheets]
+credentials_file = "~/.ssh/lavietobey1-e51604059582.json"
+spreadsheet_id = "1Ej5nEvcvtXan0Y1b-4SPsaFIiEdYbWn87uv8u_q7BB4"
+worksheet_name = "Raw Data"

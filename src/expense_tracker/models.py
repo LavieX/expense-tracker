@@ -71,6 +71,8 @@ class Transaction:
         is_transfer: True if this transaction was detected as an internal
             transfer between accounts.
         is_return: True if the amount is positive (refund/credit).
+        is_recurring: True if this transaction is a recurring charge
+            (subscription, bill, etc.).
         split_from: Parent transaction_id if this is a split line item,
             or empty string if it is not a split.
         source_file: Path to the source CSV file (for debugging; not
@@ -88,6 +90,7 @@ class Transaction:
     subcategory: str = ""
     is_transfer: bool = False
     is_return: bool = False
+    is_recurring: bool = False
     split_from: str = ""
     source_file: str = ""
 
@@ -129,6 +132,8 @@ class MerchantRule:
             (case-insensitive).
         category: Target top-level category.
         subcategory: Target subcategory, or empty string if none.
+        recurring: True if this merchant is a recurring charge
+            (subscription, bill, etc.).
         source: Origin of this rule: "user" (hand-authored, never
             overwritten) or "learned" (system-managed via the learn
             command).
@@ -137,6 +142,7 @@ class MerchantRule:
     pattern: str
     category: str
     subcategory: str = ""
+    recurring: bool = False
     source: str = "user"
 
 
@@ -202,6 +208,21 @@ class AmazonAccountConfig:
 
 
 @dataclass
+class SheetsConfig:
+    """Configuration for Google Sheets integration.
+
+    Attributes:
+        credentials_file: Path to the Google service account JSON file.
+        spreadsheet_id: Google Sheets spreadsheet ID.
+        worksheet_name: Name of the worksheet/tab within the spreadsheet.
+    """
+
+    credentials_file: str
+    spreadsheet_id: str
+    worksheet_name: str = "Raw Data"
+
+
+@dataclass
 class AppConfig:
     """Top-level application configuration loaded from config.toml.
 
@@ -223,6 +244,7 @@ class AppConfig:
         amazon_accounts: List of configured Amazon accounts for
             enrichment. If empty, a single default account is assumed
             for backward compatibility.
+        sheets: Google Sheets configuration, or None if not configured.
     """
 
     accounts: list[AccountConfig] = field(default_factory=list)
@@ -236,6 +258,7 @@ class AppConfig:
     llm_model: str = "claude-sonnet-4-20250514"
     llm_api_key_env: str = "ANTHROPIC_API_KEY"
     amazon_accounts: list[AmazonAccountConfig] = field(default_factory=list)
+    sheets: SheetsConfig | None = None
 
 
 @dataclass

@@ -23,6 +23,7 @@ from expense_tracker.models import PipelineResult, Transaction
 CSV_COLUMNS = [
     "transaction_id",
     "date",
+    "month",
     "merchant",
     "description",
     "amount",
@@ -31,6 +32,7 @@ CSV_COLUMNS = [
     "category",
     "subcategory",
     "is_return",
+    "is_recurring",
     "split_from",
 ]
 
@@ -78,6 +80,7 @@ def export(
                 {
                     "transaction_id": txn.transaction_id,
                     "date": txn.date.isoformat(),
+                    "month": txn.date.strftime("%Y-%m"),
                     "merchant": txn.merchant,
                     "description": txn.description,
                     "amount": str(txn.amount),
@@ -86,6 +89,7 @@ def export(
                     "category": txn.category,
                     "subcategory": txn.subcategory,
                     "is_return": str(txn.is_return),
+                    "is_recurring": str(txn.is_recurring),
                     "split_from": txn.split_from,
                 }
             )

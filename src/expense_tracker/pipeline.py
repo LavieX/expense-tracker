@@ -24,6 +24,7 @@ from expense_tracker.models import (
     Transaction,
 )
 from expense_tracker.parsers import get_parser
+from expense_tracker.recurring import detect_recurring
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ def run(
     categories: list[dict],
     rules: list[MerchantRule],
     root: Path,
+    exclude_patterns: list[str] | None = None,
 ) -> PipelineResult:
     """Run the full processing pipeline for *month*.
 
@@ -46,10 +48,11 @@ def run(
 
     1. **Parse** -- discover CSVs per account, call parsers, concatenate.
     2. **Filter** -- keep only transactions within the target month.
-    3. **Deduplicate** -- remove duplicate ``transaction_id`` values.
-    4. **Detect transfers** -- match checking debits to CC credits.
-    5. **Enrich** -- look up enrichment-cache, split if found.
-    6. **Categorize** -- apply rules (tier 1); LLM fallback is not
+    3. **Exclude** -- filter out transactions matching exclude patterns.
+    4. **Deduplicate** -- remove duplicate ``transaction_id`` values.
+    5. **Detect transfers** -- match checking debits to CC credits.
+    6. **Enrich** -- look up enrichment-cache, split if found.
+    7. **Categorize** -- apply rules (tier 1); LLM fallback is not
        invoked by this module (a callable may be injected later).
 
     Args:
@@ -60,6 +63,9 @@ def run(
         rules: Merchant-to-category mapping rules, ordered user-first.
         root: Project root directory (paths in *config* are relative to
             this).
+        exclude_patterns: Optional list of patterns for transactions to
+            exclude entirely (e.g., salary, internal transfers). If not
+            provided, defaults to empty list.
 
     Returns:
         A :class:`PipelineResult` with the final transaction list and all
@@ -67,6 +73,9 @@ def run(
     """
     all_warnings: list[str] = []
     all_errors: list[str] = []
+
+    if exclude_patterns is None:
+        exclude_patterns = []
 
     # -- Stage 1: Parse -------------------------------------------------------
     parse_result = _parse_stage(config, root)
@@ -79,6 +88,12 @@ def run(
     all_warnings.extend(filter_result.warnings)
     all_errors.extend(filter_result.errors)
     transactions = filter_result.transactions
+
+    # -- Stage 1c: Exclude transactions ---------------------------------------
+    exclude_result = _exclude_transactions(transactions, exclude_patterns)
+    all_warnings.extend(exclude_result.warnings)
+    all_errors.extend(exclude_result.errors)
+    transactions = exclude_result.transactions
 
     # -- Stage 2: Deduplicate -------------------------------------------------
     dedup_result = _deduplicate(transactions)
@@ -103,6 +118,12 @@ def run(
     all_warnings.extend(cat_result.warnings)
     all_errors.extend(cat_result.errors)
     transactions = cat_result.transactions
+
+    # -- Stage 6: Detect recurring --------------------------------------------
+    recurring_result = _detect_recurring_stage(transactions, root, config, rules)
+    all_warnings.extend(recurring_result.warnings)
+    all_errors.extend(recurring_result.errors)
+    transactions = recurring_result.transactions
 
     return PipelineResult(
         transactions=transactions,
@@ -203,6 +224,50 @@ def _filter_month(transactions: list[Transaction], month: str) -> StageResult:
     ]
 
     return StageResult(transactions=filtered)
+
+
+def _exclude_transactions(
+    transactions: list[Transaction],
+    exclude_patterns: list[str],
+) -> StageResult:
+    """Filter out transactions matching exclude patterns.
+
+    Exclude patterns are used to filter out transactions like salary,
+    income, or internal transfers that should not be processed.
+
+    Args:
+        transactions: All transactions to filter.
+        exclude_patterns: List of patterns to match against merchant field.
+            Matching is case-insensitive substring match.
+
+    Returns:
+        StageResult with excluded transactions removed and a warning
+        reporting the count of excluded transactions.
+    """
+    if not exclude_patterns:
+        return StageResult(transactions=transactions)
+
+    # Convert patterns to uppercase for case-insensitive matching
+    patterns_upper = [p.upper() for p in exclude_patterns]
+
+    # Filter out transactions whose merchant matches any exclude pattern
+    excluded_count = 0
+    filtered: list[Transaction] = []
+
+    for txn in transactions:
+        merchant_upper = txn.merchant.upper()
+        is_excluded = any(pattern in merchant_upper for pattern in patterns_upper)
+
+        if is_excluded:
+            excluded_count += 1
+        else:
+            filtered.append(txn)
+
+    warnings: list[str] = []
+    if excluded_count > 0:
+        warnings.append(f"Excluded {excluded_count} transaction(s) matching exclude patterns")
+
+    return StageResult(transactions=filtered, warnings=warnings)
 
 
 def _deduplicate(transactions: list[Transaction]) -> StageResult:
@@ -346,6 +411,7 @@ def _enrich(
                 subcategory=txn.subcategory,
                 is_transfer=txn.is_transfer,
                 is_return=item_amount > 0,
+                is_recurring=txn.is_recurring,
                 split_from=txn.transaction_id,
                 source_file=txn.source_file,
             )
@@ -384,8 +450,73 @@ def _categorize(
         if match is not None:
             txn.category = match.category
             txn.subcategory = match.subcategory
+            txn.is_recurring = match.recurring
 
     return StageResult(transactions=transactions)
+
+
+def _detect_recurring_stage(
+    transactions: list[Transaction],
+    root: Path,
+    config: AppConfig,
+    rules: list[MerchantRule],
+) -> StageResult:
+    """Stage 6: auto-detect recurring merchants from historical data.
+
+    Scans historical output CSVs to find merchants that appear regularly
+    (3+ months) with similar amounts (within 20% variance). If a transaction's
+    merchant matches a detected recurring pattern AND no rule explicitly sets
+    recurring status, mark it as recurring.
+
+    Rule-based recurring flags always take precedence over auto-detection.
+    """
+    output_dir = root / config.output_dir
+
+    # Detect recurring merchants from historical data
+    try:
+        recurring_merchants = detect_recurring(transactions, output_dir)
+    except Exception as exc:
+        # Don't fail the pipeline if recurring detection fails
+        return StageResult(
+            transactions=transactions,
+            warnings=[f"Recurring detection failed: {exc}"],
+        )
+
+    if not recurring_merchants:
+        return StageResult(transactions=transactions)
+
+    # Build a set of merchants that have explicit recurring rules
+    # (so we don't override them)
+    explicit_recurring_merchants: set[str] = set()
+    for rule in rules:
+        if rule.recurring:
+            explicit_recurring_merchants.add(rule.pattern.upper())
+
+    # Apply auto-detection to transactions
+    auto_flagged = 0
+    for txn in transactions:
+        # Skip if already flagged as recurring by a rule
+        if txn.is_recurring:
+            continue
+
+        # Skip if merchant has an explicit recurring rule
+        merchant_upper = txn.merchant.upper()
+        has_explicit_rule = any(
+            pattern in merchant_upper for pattern in explicit_recurring_merchants
+        )
+        if has_explicit_rule:
+            continue
+
+        # Check if merchant matches any auto-detected recurring pattern
+        if merchant_upper in recurring_merchants:
+            txn.is_recurring = True
+            auto_flagged += 1
+
+    warnings = []
+    if auto_flagged > 0:
+        warnings.append(f"Auto-flagged {auto_flagged} recurring transaction(s)")
+
+    return StageResult(transactions=transactions, warnings=warnings)
 
 
 def _match_rules(merchant: str, rules: list[MerchantRule]) -> MerchantRule | None:

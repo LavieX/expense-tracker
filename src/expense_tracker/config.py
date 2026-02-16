@@ -19,7 +19,13 @@ else:
 
 import tomli_w
 
-from expense_tracker.models import AccountConfig, AmazonAccountConfig, AppConfig, MerchantRule
+from expense_tracker.models import (
+    AccountConfig,
+    AmazonAccountConfig,
+    AppConfig,
+    MerchantRule,
+    SheetsConfig,
+)
 
 # ---------------------------------------------------------------------------
 # Default file content -- matches architecture doc Section 7 exactly
@@ -139,6 +145,16 @@ _DEFAULT_RULES_TOML = """\
 # User rules always take precedence over learned rules.
 # Matching: case-insensitive substring, longest match wins.
 
+[exclude]
+# Merchants to exclude entirely from processing (salary, income, internal transfers).
+# These transactions will be filtered out early in the pipeline.
+# Matching: case-insensitive substring match against merchant field.
+patterns = [
+    # Examples:
+    # "PAYROLL",
+    # "VENMO",
+]
+
 [user_rules]
 # Manually authored rules. The system never modifies this section.
 # Format: pattern = "Category" or pattern = "Category:Subcategory"
@@ -209,6 +225,16 @@ def load_config(root: Path) -> AppConfig:
         for section in amazon_sections
     ]
 
+    # Parse [sheets] section for Google Sheets integration (optional).
+    sheets_data = data.get("sheets")
+    sheets_config = None
+    if sheets_data:
+        sheets_config = SheetsConfig(
+            credentials_file=sheets_data.get("credentials_file", ".auth/google-service-account.json"),
+            spreadsheet_id=sheets_data.get("spreadsheet_id", ""),
+            worksheet_name=sheets_data.get("worksheet_name", "Raw Data"),
+        )
+
     return AppConfig(
         accounts=accounts,
         output_dir=general.get("output_dir", "output"),
@@ -221,6 +247,7 @@ def load_config(root: Path) -> AppConfig:
         llm_model=llm.get("model", "claude-sonnet-4-20250514"),
         llm_api_key_env=llm.get("api_key_env", "ANTHROPIC_API_KEY"),
         amazon_accounts=amazon_accounts,
+        sheets=sheets_config,
     )
 
 
@@ -264,16 +291,43 @@ def load_rules(root: Path) -> list[MerchantRule]:
     rules: list[MerchantRule] = []
 
     for pattern, value in data.get("user_rules", {}).items():
-        cat, subcat = _parse_category_value(value)
-        rules.append(MerchantRule(pattern=pattern, category=cat, subcategory=subcat, source="user"))
+        cat, subcat, recurring = _parse_category_value(value)
+        rules.append(MerchantRule(pattern=pattern, category=cat, subcategory=subcat, recurring=recurring, source="user"))
 
     for pattern, value in data.get("learned_rules", {}).items():
-        cat, subcat = _parse_category_value(value)
+        cat, subcat, recurring = _parse_category_value(value)
         rules.append(
-            MerchantRule(pattern=pattern, category=cat, subcategory=subcat, source="learned")
+            MerchantRule(pattern=pattern, category=cat, subcategory=subcat, recurring=recurring, source="learned")
         )
 
     return rules
+
+
+def load_exclude_patterns(root: Path) -> list[str]:
+    """Load exclude patterns from ``rules.toml``.
+
+    Exclude patterns are used to filter out transactions (like salary or
+    internal transfers) early in the pipeline.
+
+    Args:
+        root: Project root directory containing ``rules.toml``.
+
+    Returns:
+        A list of exclude pattern strings. Returns empty list if
+        ``rules.toml`` does not exist or has no exclude section.
+    """
+    try:
+        data = _read_toml(root / "rules.toml")
+    except FileNotFoundError:
+        return []
+
+    exclude_section = data.get("exclude", {})
+    patterns = exclude_section.get("patterns", [])
+
+    # Ensure patterns is a list of strings
+    if isinstance(patterns, list):
+        return [str(p) for p in patterns]
+    return []
 
 
 def save_learned_rules(root: Path, rules: list[MerchantRule]) -> None:
@@ -356,16 +410,42 @@ def _read_toml(path: Path) -> dict:
         return tomllib.load(f)
 
 
-def _parse_category_value(value: str) -> tuple[str, str]:
-    """Parse a ``"Category"`` or ``"Category:Subcategory"`` string."""
+def _parse_category_value(value: str | dict) -> tuple[str, str, bool]:
+    """Parse a ``"Category"`` or ``"Category:Subcategory"`` string or dict.
+
+    Args:
+        value: Either a string like "Category" or "Category:Subcategory",
+            or a dict with keys "category", "subcategory", and "recurring".
+
+    Returns:
+        A tuple of (category, subcategory, recurring).
+    """
+    if isinstance(value, dict):
+        cat = value.get("category", "").strip()
+        subcat = value.get("subcategory", "").strip()
+        recurring = value.get("recurring", False)
+        return cat, subcat, recurring
+
+    # String format: "Category" or "Category:Subcategory"
     if ":" in value:
         cat, subcat = value.split(":", 1)
-        return cat.strip(), subcat.strip()
-    return value.strip(), ""
+        return cat.strip(), subcat.strip(), False
+    return value.strip(), "", False
 
 
-def _format_category_value(rule: MerchantRule) -> str:
-    """Format a rule's category/subcategory back to TOML value form."""
+def _format_category_value(rule: MerchantRule) -> str | dict:
+    """Format a rule's category/subcategory/recurring back to TOML value form.
+
+    Returns a dict if recurring is True, otherwise a string.
+    """
+    if rule.recurring:
+        result = {"category": rule.category}
+        if rule.subcategory:
+            result["subcategory"] = rule.subcategory
+        result["recurring"] = True
+        return result
+
+    # Simple string format for non-recurring
     if rule.subcategory:
         return f"{rule.category}:{rule.subcategory}"
     return rule.category

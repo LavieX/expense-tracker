@@ -152,6 +152,7 @@ def categorize(
         if rule is not None:
             txn.category = rule.category
             txn.subcategory = rule.subcategory
+            txn.is_recurring = rule.recurring
         else:
             uncategorized.append(txn)
 
