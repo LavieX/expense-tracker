@@ -36,3 +36,14 @@ coverage.xml
 # OS
 .DS_Store
 Thumbs.db
+
+# Sensitive expense data - NEVER commit these
+input/
+output/
+enrichment-cache/
+.auth/
+config.toml
+
+# Also block individual CSV files anywhere in the repo (except tests/fixtures)
+*.csv
+!tests/fixtures/*.csv

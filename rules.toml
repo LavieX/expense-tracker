@@ -271,6 +271,435 @@ MCGUCKIN = "Home & Garden:Home Improvement"
 "LAKE MINNE" = "Entertainment:Activities"
 "PAYPAL * MANNYSCHOIC" = "Shopping:General"
 
+# --- Amazon product categorization (Feb 2026) ---
+
+# Kids: Clothing
+"Stelle Long Sleeve Ballet Leotards" = "Kids:Clothing"
+"Motasha Toddler Girls Cowgirl Boots" = "Kids:Clothing"
+"The Children's Place,Boys Casual Lace Up Hi Top Sneakers" = "Kids:Clothing"
+"The Children's Place baby girls Family Matching Christmas" = "Kids:Clothing"
+"DAUGHTER QUEEN Girls Unicorn Pajamas" = "Kids:Clothing"
+"PrinceSasa Number 5" = "Kids:Clothing"
+"Tutu Dreams Unicorn Tutu for Girls" = "Kids:Clothing"
+"WELAKEN Ombre Sequin Bomber Jacket for Girls" = "Kids:Clothing"
+"Funnycokid Toddler Girls Mermaid Dress" = "Kids:Clothing"
+"Girls Fashion Dresses Kids Singer Graphic" = "Kids:Clothing"
+"Nymphperi Gymnastics Leotards for Girls" = "Kids:Clothing"
+"PANDANINJIA Girls Toddler/Little Kid Megan Dress Flats" = "Kids:Clothing"
+"Deer Stags Boys' Kane Dress Fashion Sneaker" = "Kids:Clothing"
+"FiveEarl Kids Print 3D Tiger Head Tees Shirts" = "Kids:Clothing"
+"Its My 7th Seventh Birthday Building Brick" = "Kids:Clothing"
+"Kids 7rd Birthday Boy 7 Year Old Building Blocks" = "Kids:Clothing"
+"Xhuibop Snake Boys Tee Shirts Graphic" = "Kids:Clothing"
+"Axolotl Wearable Hooded Blanket for Adults" = "Shopping:Clothing"
+"SAVITO Pop Idol Cosplay Costume" = "Kids:Clothing"
+
+# Kids: Toys & Games
+"Pokémon TCG: My First Battle" = "Kids:Toys"
+"Fotorama Tap It Wireless" = "Kids:Toys"
+"Squishmallows Micromallows Mystery Squad" = "Kids:Toys"
+"3D Printed Dragon Eggs with Dragon Inside" = "Kids:Toys"
+"Doctor Jupiter Girls' First Science Kit" = "Kids:Toys"
+"Peaceable Kingdom Shimmery Magical Mermaid Floor Puzzle" = "Kids:Toys"
+"CGE Czech Games Edition Codenames" = "Kids:Toys"
+"WE Games Best Value Tournament Chess Set" = "Kids:Toys"
+"Hopearl Adorable Plush Calf Elephant Toy" = "Kids:Toys"
+"Miykon Kids Watches for Boys and Girls" = "Kids:Toys"
+"Step2 Kid Alert Street Safety Sign" = "Kids:Toys"
+
+# Kids: Books
+"Bluey Coloring and Activity Book" = "Kids:Books"
+"Bluey: At the Beach: A Coloring Book" = "Kids:Books"
+"Bluey: Fun and Games: A Coloring Book" = "Kids:Books"
+"National Geographic Kids Ultimate Weird But True" = "Kids:Books"
+"You Are 7 And Amazing" = "Kids:Books"
+"Write-On Wipe-Off My First Unicorn Hidden Pictures" = "Kids:Books"
+
+# Kids: Activities (Halloween costumes, party supplies, tattoos)
+"Fun Costumes Kid's Green Iguana" = "Kids:Activities"
+"Disguise Cheetor Transformers Costume" = "Kids:Activities"
+"URATOT Halloween Women Costume Sets" = "Shopping:Clothing"
+"Voiiake Black Cat Ears Headband" = "Shopping:Clothing"
+"Funny Easy Lazy Halloween PRETEND I'M A VILLAIN" = "Shopping:Clothing"
+"morvally 33.5 Inches Purple Long Braided Ponytail Wig" = "Shopping:Clothing"
+"Awinmay 400Pcs Luminous Tattoos For Kids" = "Kids:Activities"
+"JCFIRE Halloween Temporary Tattoos for Kids" = "Kids:Activities"
+"Pink Cute Axolotl Temporary Tattoos" = "Kids:Activities"
+"36 Pcs Halloween Happy Birthday Cupcake Toppers" = "Kids:Activities"
+"39Ft Halloween Party Decoration Garland" = "Kids:Activities"
+"Enhon Halloween Birthday Party Decorations" = "Kids:Activities"
+"Halloween Party Supplies, Halloween Birthday Plates" = "Kids:Activities"
+"Light Up Halloween Skeleton Heart Decor" = "Kids:Activities"
+"Toodour Orange & Purple Halloween Lights" = "Kids:Activities"
+"120 Pcs Music Dance Party Supplies" = "Kids:Activities"
+"Hahafelt Kpop Theme Birthday Decorations" = "Kids:Activities"
+
+# Personal Care: Beauty
+"SkinMedica Facial Cleanser" = "Personal Care:Beauty"
+"medicube Collagen Overnight Wrapping Peel Off" = "Personal Care:Beauty"
+"medicube Facial Cleanser Zero Pore" = "Personal Care:Beauty"
+"medicube Salmon DNA PDRN pink collagen" = "Personal Care:Beauty"
+"medicube Zero Pore Blackhead Mud Facial" = "Personal Care:Beauty"
+"medicube Zero Pore Clear Blue Capsule" = "Personal Care:Beauty"
+"TATCHA The Brightening Eye Cream" = "Personal Care:Beauty"
+"KORA Organics Noni Glow Hydrating Face Oil" = "Personal Care:Beauty"
+"grace & stella Award Winning Under Eye Mask" = "Personal Care:Beauty"
+"True Botanicals Chebula Active Serum" = "Personal Care:Beauty"
+"SimplyVital Collagen, Retinol" = "Personal Care:Beauty"
+"Living Proof Perfect Hair Day Heat Styling Spray" = "Personal Care:Beauty"
+"Wella Professionals ULTIMATE REPAIR" = "Personal Care:Beauty"
+"Neutrogena Makeup Remover Wipes" = "Personal Care:Beauty"
+"Alba Botanica Daily Moisturizing Lotion" = "Personal Care:Beauty"
+
+# Shopping: Clothing (Women's)
+"EVALESS Womens Cap Sleeve Sweater Vest" = "Shopping:Clothing"
+"EVALESS Womens Spring Sleeveless Sweater Vest" = "Shopping:Clothing"
+"Eomenie Women's Push Up Wrap Front Swimsuit" = "Shopping:Clothing"
+"Herseas Women's Bikini Sets" = "Shopping:Clothing"
+"ZAFUL Twist High Waisted Bikini" = "Shopping:Clothing"
+"MANGOPOP Women's Long Sleeve Bodysuit" = "Shopping:Clothing"
+"GEMBERA Women's Sleeveless Scoop Neck Ribbed Tank" = "Shopping:Clothing"
+"Saodimallsu Womens Cap Sleeve Crop Tops" = "Shopping:Clothing"
+"SHEWIN Womens T Shirts Crewneck" = "Shopping:Clothing"
+"Women's Summer Striped Ruffle Short Sleeve Tops" = "Shopping:Clothing"
+"Womens Cute Sleeveless Tank Tops Ruffle Strap" = "Shopping:Clothing"
+"Missufe Women's Round Neck Ruffle" = "Shopping:Clothing"
+"PLNOTME Womens Baggy High Waisted Jeans" = "Shopping:Clothing"
+"Puimentiua Women's Linen Capri Pants" = "Shopping:Clothing"
+"chouyatou Women's Striped Back Smocked Maxi Dress" = "Shopping:Clothing"
+"Maxigerui Women's Velvet Maxi Dress" = "Shopping:Clothing"
+"HOTOUCH Womens Silky Satin Pajamas" = "Shopping:Clothing"
+"Dolce Vita Women's Rains Ballet Flat" = "Shopping:Clothing"
+"FITORY Womens Open Toe Slipper" = "Shopping:Clothing"
+"COOFANDY Men's Linen Shirt" = "Shopping:Clothing"
+
+# Shopping: Jewelry & Accessories
+"Fossil Women's Scarlette Mini Quartz" = "Shopping:Jewelry"
+"Gold Statement Earrings for Women by SNGIA" = "Shopping:Jewelry"
+"PAVOI 14K Yellow Gold Plated" = "Shopping:Jewelry"
+"PAVOI Rhodium Plated" = "Shopping:Jewelry"
+
+# Shopping: Electronics
+"Canon EOS Rebel T7 DSLR Camera" = "Shopping:Electronics"
+"Bio Ionic Long Barrel Styler" = "Shopping:Electronics"
+"Aura Carver 10.1\" WiFi Digital Picture Frame" = "Shopping:Electronics"
+"RonShieh Magnetic for iPhone" = "Shopping:Electronics"
+
+# Shopping: Books (Adults)
+"The Thorn Birds" = "Shopping:Books"
+"The Book of Lost Names" = "Shopping:Books"
+"The Artist's Way: 30th Anniversary Edition" = "Shopping:Books"
+"The Love Haters: A Novel" = "Shopping:Books"
+"Happy Place" = "Shopping:Books"
+
+# Shopping: General
+"BIC Multi-Purpose Classic Edition Lighters" = "Shopping:General"
+"Klean Kanteen 16oz TKWide" = "Shopping:General"
+"50 pcs RC Body Clips, daitoku" = "Shopping:General"
+"Komotu Christmas Stocking Holder for Mantle" = "Shopping:General"
+"AT-A-GLANCE 2026 Wall Calendar" = "Shopping:General"
+"Aesthetic 2026 Wall Calendar" = "Shopping:General"
+"Affirmations Crochet Matcha Buddy" = "Shopping:Gifts"
+"DAYANEY New Beginnings Gifts Nature Crystal Keychain" = "Shopping:Gifts"
+"Daily Affirmation Cards to Unleash Your Best Self" = "Shopping:General"
+"CosyCheer Heavy Duty ID Badge Holder" = "Shopping:General"
+"KTRIO ID Badge Holders with Metal Clip" = "Shopping:General"
+"Azefnuhk Cute Panda Plush Photocard Holder" = "Shopping:General"
+"Mudder 12 Pieces Metal Cribbage Pegs" = "Shopping:General"
+"Skura Style Smart 4 Pack Odor Free" = "Home & Garden:Supplies"
+
+# Home & Garden
+"Core Mini Replacement Filter Compatible with LEVOIT" = "Home & Garden:Appliances"
+"FLT4825 HEPA Filter B Replacement" = "Home & Garden:Appliances"
+"PuroAir 240 Replacement Filter" = "Home & Garden:Appliances"
+"PINICO Cordless Vacuum Cleaner" = "Home & Garden:Appliances"
+"INDRESSME Extra Large Woven Baskets for Storage" = "Home & Garden:Supplies"
+"INDRESSME XXXLarge Cotton Rope Basket" = "Home & Garden:Supplies"
+"LONGTEAM Hanging Purse Handbag Organizer" = "Home & Garden:Supplies"
+"Achicsofar Giant Bean Bag Chairs" = "Home & Garden:Furniture"
+"ELITEROO 3 Tier Wooden Display Riser Stand" = "Home & Garden:Supplies"
+"Victor Mouse Traps M150-12" = "Home & Garden:Pest Control"
+"Coconix Tile & Stone Repair Kit" = "Home & Garden:Home Improvement"
+"Gurtice New Upgraded 3 Pack WR55X11132" = "Home & Garden:Appliances"
+"Gurtice New Upgraded 4 Pack WR55X11132" = "Home & Garden:Appliances"
+"Combination Picking Home Storage Lock Set" = "Home & Garden:Home Improvement"
+"BioBag (USA), The Original Compostable Bag" = "Home & Garden:Supplies"
+"Bisenkud 1 Pack Rechargeable Battery Pack Replacement for Swiffer" = "Home & Garden:Supplies"
+
+# Health & Fitness
+"Flydo Yoga Socks Pilates for Women" = "Health & Fitness:Gym/Classes"
+"Ozaiic Pilates Socks for Women" = "Health & Fitness:Gym/Classes"
+"Shapes Studio Crew Half Calf Grip Socks" = "Health & Fitness:Gym/Classes"
+"SOLE Active Thick Insoles" = "Health & Fitness:Gym/Classes"
+"Boiron Arnicare Cream" = "Healthcare:Pharmacy"
+
+# Healthcare
+"AUVON Insulin Pen Cooler Travel Case" = "Healthcare:Supplies"
+"Ice Packs for Insulin Cooler Travel Case" = "Healthcare:Supplies"
+"MEDILYMER Pinky Finger Splint" = "Healthcare:Supplies"
+"Plaque Disclosing Tablets for Teeth" = "Healthcare:Dental"
+"U-100 1cc 31 Gauge 5/16 Inch Syringe" = "Healthcare:Supplies"
+"Vegan Biodegradable Bamboo Charcoal Dental Floss" = "Healthcare:Dental"
+
+# Pets
+"Tetra BloodWorms" = "Pets:Supplies"
+"PetSafe Citronella Spray Can Refill" = "Pets:Supplies"
+"Top Fin Silenstream Large PF-L Filter Cartridges" = "Pets:Supplies"
+
+# Transportation & Auto
+"RideSafer - Small Black, Lightweight, Compact, Portable Car Seat" = "Transportation:Safety"
+"Kids Ride On Car Cover" = "Kids:Toys"
+"Coleman Stove & Lantern Repair Kit" = "Shopping:Sporting Goods"
+
+# Home: Hot Tub & Spa
+"ClearView Chlorine Granules 5 Lbs for Spas" = "Home & Garden:Hot Tub"
+"Ultimate Spa Filter Cleaner" = "Home & Garden:Hot Tub"
+
+# Food & Kitchen
+"ThermoMaven Professional Meat Thermometer" = "Home & Garden:Kitchen"
+"Sun Bum Cool Down Aloe Vera Gel" = "Health & Fitness:Supplements"
+
+# Shopping: Sporting Goods
+"Coward Sunglass Organizer" = "Shopping:General"
+
+# Insurance / Protection Plans
+"ASURION 2 Year Portable Electronic Accident Protection" = "Shopping:Electronics"
+"ASURION 2 Year Watch Protection Plan" = "Shopping:Jewelry"
+
+# --- Target product categorization + misc (Feb 2026) ---
+
+# Target: Tax/Adjustments (tax component of Target orders)
+"Tax/Adjustments" = "Shopping:Tax"
+
+# Non-Amazon uncategorized
+"Generic Paris Sweatshirt" = "Shopping:Clothing"
+
+# Target: Food & Grocery items
+"Fresh Honeycrisp Apples" = "Food & Dining:Groceries"
+"Fresh Dekopon Mandarin" = "Food & Dining:Groceries"
+"Organic Applesauce Pouches" = "Food & Dining:Groceries"
+"Nature's Bakery Blueberry Fig Bar" = "Food & Dining:Groceries"
+"GoMacro Salted Caramel" = "Food & Dining:Groceries"
+"Goldfish Colors Crackers" = "Food & Dining:Groceries"
+"Mini Babybel Original" = "Food & Dining:Groceries"
+"Low-Moisture Part-Skim Mozzarella String Cheese" = "Food & Dining:Groceries"
+"Peet's Coffee" = "Food & Dining:Groceries"
+"Sun-Maid California Sun-Dried Raisins" = "Food & Dining:Groceries"
+"Nerds Gummy Clusters" = "Food & Dining:Groceries"
+"Gatorade G Zero" = "Food & Dining:Groceries"
+"Oatly Oatmilk" = "Food & Dining:Groceries"
+"Oatly Original Oatmilk" = "Food & Dining:Groceries"
+"LaCroix Sparkling Water" = "Food & Dining:Groceries"
+"Waterloo Summer Berry Sparkling Water" = "Food & Dining:Groceries"
+"Waterloo Peach Sparkling Water" = "Food & Dining:Groceries"
+"Mission Round Yellow Corn Tortilla Chips" = "Food & Dining:Groceries"
+"Shredded Mexican-Style Cheese" = "Food & Dining:Groceries"
+"Vital Farms Pasture-Raised" = "Food & Dining:Groceries"
+"Horizon Organic Half" = "Food & Dining:Groceries"
+"Simply Beverages Orange" = "Food & Dining:Groceries"
+"Wright Brand Thick Sliced Applewood Smoked Bacon" = "Food & Dining:Groceries"
+"Vita Coco Original Coconut Water" = "Food & Dining:Groceries"
+"Vita Coco Pure Coconut Water" = "Food & Dining:Groceries"
+
+# Target: Health & Personal Care
+"OLLY Fiber Digestive Gummy" = "Healthcare:Pharmacy"
+"Metamucil Psyllium" = "Healthcare:Pharmacy"
+"Kid's Garden of Life Dr. Formulated Organic Probiotic" = "Healthcare:Pharmacy"
+"Oral-B CrossAction Electric Toothbrush Replacement" = "Healthcare:Dental"
+"Flossers Kids" = "Healthcare:Dental"
+"Mentos Fresh Mint Gum" = "Food & Dining:Groceries"
+"Puffs Plus Lotion" = "Home & Garden:Supplies"
+
+# Target: Household
+"Dryer Sheets Free Clear" = "Home & Garden:Supplies"
+"OxiClean MaxForce Laundry Stain Remover" = "Home & Garden:Supplies"
+"Scotch Shipping Packaging Tape" = "Home & Garden:Supplies"
+"Scotch Shipping and Packaging Tape" = "Home & Garden:Supplies"
+"Scotch Heavy Duty Shipping" = "Home & Garden:Supplies"
+"Adjustable Single Rod Garment Rack" = "Home & Garden:Supplies"
+
+# Target: Kids & Electronics
+"PDP Afterglow Wave Wireless Controller" = "Kids:Toys"
+"Camp Snap Screen-Free Digital Camera" = "Kids:Toys"
+
+# Target items with HTML entities in merchant names
+"Nature&#39;s Bakery Blueberry Fig Bar" = "Food & Dining:Groceries"
+"Peet&#39;s Coffee Major Dickason" = "Food & Dining:Groceries"
+"Flossers Kids&#39;" = "Healthcare:Dental"
+
+# --- Target product categorization batch 2 (Feb 2026) ---
+
+# Target: Food & Groceries
+"Kellogg&#39;s Rice Krispies Breakfast Cereal" = "Food & Dining:Groceries"
+"General Mills Kix Cereal" = "Food & Dining:Groceries"
+"Tic Tac Single Freshmint" = "Food & Dining:Groceries"
+"Tic Tac Single Fruit Adventure" = "Food & Dining:Groceries"
+"Fresh Petite Baby-Cut Carrots" = "Food & Dining:Groceries"
+"Organic Creamy Peanut Butter" = "Food & Dining:Groceries"
+"MUSH Vanilla Bean Ready to Eat" = "Food & Dining:Groceries"
+"Canyon Bakehouse Gluten Free Plain Bagels" = "Food & Dining:Groceries"
+"Canyon Bakehouse Gluten Free Everything Bagels" = "Food & Dining:Groceries"
+"Canyon Bakehouse Brioche Gluten Free Hamburger Buns" = "Food & Dining:Groceries"
+"Dave&#39;s Killer Bread" = "Food & Dining:Groceries"
+"Honest Kids Organic Apple Juice" = "Food & Dining:Groceries"
+"Honest Kids Organic Fruit Punch" = "Food & Dining:Groceries"
+"noosa Vanilla Bean Aussie Style Yogurt" = "Food & Dining:Groceries"
+"noosa Lemon Yogurt" = "Food & Dining:Groceries"
+"noosa Peach Aussie Style Yogurt" = "Food & Dining:Groceries"
+"Good Culture 2% Milkfat Simply Cottage Cheese" = "Food & Dining:Groceries"
+"Good Culture Organic 4% Milkfat Cottage Cheese" = "Food & Dining:Groceries"
+"Fresh Banana - each" = "Food & Dining:Groceries"
+"Waterloo Black Cherry Sparkling Water" = "Food & Dining:Groceries"
+"Waterloo Raspberry Nectarine Sparkling Water" = "Food & Dining:Groceries"
+"Multigrain Cheerios Giant Size Cereal" = "Food & Dining:Groceries"
+"Mentos Gum Spearmint" = "Food & Dining:Groceries"
+"Extra Pink Lemonade Sugar Free Gum" = "Food & Dining:Groceries"
+"Snickers Full Size Chocolate Candy Bar" = "Food & Dining:Groceries"
+"FAGE Total 2% Milkfat Plain Greek Yogurt" = "Food & Dining:Groceries"
+"Half &#38; Half - 32 fl oz" = "Food & Dining:Groceries"
+"Kerrygold Salted Butter Sticks" = "Food & Dining:Groceries"
+"Popsicle Orange Cherry Grape" = "Food & Dining:Groceries"
+"Vital Farms Pasture Raised XL Eggs" = "Food & Dining:Groceries"
+"Klondike Original Vanilla Ice Cream Bars" = "Food & Dining:Groceries"
+"Goldfish Colors Cheddar Cheese Crackers" = "Food & Dining:Groceries"
+"Frozen Blueberries - 48oz" = "Food & Dining:Groceries"
+"Fresh Premium Grape Tomatoes" = "Food & Dining:Groceries"
+"Santitas Salsa Mild Jar Dip" = "Food & Dining:Groceries"
+"Fresh Cucumber - each" = "Food & Dining:Groceries"
+"Organic Apple Sauce Pouch Unsweetened" = "Food & Dining:Groceries"
+"Organic Sugar - 4lbs" = "Food & Dining:Groceries"
+"Nestle Toll House Milk Chocolate Chips" = "Food & Dining:Groceries"
+"Claussen Dill Pickle Spears" = "Food & Dining:Groceries"
+"JonnyPops Strawberries" = "Food & Dining:Groceries"
+"Nestle Vanilla with Caramel" = "Food & Dining:Groceries"
+"Eggo Frozen Waffles" = "Food & Dining:Groceries"
+"All Natural Oven Roasted Turkey Breast" = "Food & Dining:Groceries"
+"Bobo&#39;s Original with Chocolate Chips" = "Food & Dining:Groceries"
+"Extra Sugar-Free Spearmint Sugar Free Chewing Gum" = "Food & Dining:Groceries"
+"Orange Cream Ice Cream Bars" = "Food & Dining:Groceries"
+"Fresh Extra Large Red Seedless Grape" = "Food & Dining:Groceries"
+"Ghirardelli Caramel Milk Chocolate" = "Food & Dining:Groceries"
+
+# Target: Alcohol
+"Kim Crawford Sauvignon Blanc White Wine" = "Food & Dining:Alcohol"
+"Josh Cabernet Sauvignon Red Wine" = "Food & Dining:Alcohol"
+
+# Target: Kids Clothing
+"Toddler Addy Ballet Flats - Cat &#38; Jack" = "Kids:Clothing"
+"Toddler Lainey Unicorn Jelly Sandals - Cat &#38; Jack" = "Kids:Clothing"
+"Toddler Girls&#39; Full Zip Fleece Jacket - Cat &#38; Jack" = "Kids:Clothing"
+"Toddler Calvin Sneakers - Cat &#38; Jack" = "Kids:Clothing"
+"Toddler Nora Slip-On Ballet Flats - Cat &#38; Jack" = "Kids:Clothing"
+"Toddler Dakota Retro Court Sneakers - Cat &#38; Jack" = "Kids:Clothing"
+"Boys&#39; Pull-On &#39;At the Knee&#39; Knit Shorts - Cat &#38; Jack" = "Kids:Clothing"
+"Boys&#39; 4th of July Gauze Checkerboard Pull-On Shorts - Cat &#38; Jack" = "Kids:Clothing"
+"Boys&#39; Quick Dry &#39;Above the Knee&#39; Pull-On Shorts - Cat &#38; Jack" = "Kids:Clothing"
+"Boys&#39; Playwear &#39;At the Knee&#39; Pull-On Shorts - Cat &#38; Jack" = "Kids:Clothing"
+"Boys&#39; Textured &#39;Above the Knee&#39; Pull-On Shorts - Cat &#38; Jack" = "Kids:Clothing"
+"Boys&#39; Pull-On &#39;Above the Knee&#39; Cargo Shorts - Cat &#38; Jack&#8482; Orange" = "Kids:Clothing"
+"Boys&#39; Pull-On &#39;Above the Knee&#39; Cargo Shorts - Cat &#38; Jack&#8482; Brown" = "Kids:Clothing"
+"Boys&#39; Short Sleeve Printed Button-Down Shirt - Cat &#38; Jack" = "Kids:Clothing"
+"Boys&#39; Crocodile Printed Swim Shorts - Cat &#38; Jack" = "Kids:Clothing"
+"Boys&#39; Long Sleeve UPF T-Shirt - All In Motion" = "Kids:Clothing"
+"Boys&#39; Straight Pull-On Pants - Cat &#38; Jack" = "Kids:Clothing"
+"Toddler Girls&#39; Short Sleeve Tulle Dress - Cat &#38; Jack" = "Kids:Clothing"
+"Toddler Girls&#39; Floral Tank Dress - Cat &#38; Jack" = "Kids:Clothing"
+"Toddler Girls&#39; Short Sleeve Fruits T-Shirt - Cat &#38; Jack" = "Kids:Clothing"
+"Girls&#39; Moana 2 7pk Bikini Underwear" = "Kids:Clothing"
+"Girls&#39; Bluey 7pk Underwear" = "Kids:Clothing"
+"Carter&#39;s Just One You" = "Kids:Clothing"
+"Boys&#39; 2pc Super Mario Holiday Snuggly Soft Pajama Set" = "Kids:Clothing"
+"Boys&#39; 2pc Long Sleeve Holiday Pajama Set - Cat &#38; Jack" = "Kids:Clothing"
+"Toddler Girls&#39; 4pc Snug Fit Cotton Bluey Pajama Set" = "Kids:Clothing"
+"Boys&#39; 3pc Jurassic Park Pajama Set" = "Kids:Clothing"
+
+# Target: Men's Clothing
+"Men&#39;s Comfort Wear Slim Fit Chino Pants - Goodfellow" = "Shopping:Clothing"
+"Men&#39;s Every Wear Slim Fit Chino Pants - Goodfellow" = "Shopping:Clothing"
+"Men&#39;s Extended Tab Pleated Dress Trousers - Goodfellow" = "Shopping:Clothing"
+"Men&#39;s Straight Fit Corduroy 5-Pocket Pants - Goodfellow" = "Shopping:Clothing"
+
+# Target: Women's Clothing
+"Women&#39;s Neida EVA Two Band Footbed Slide Sandals" = "Shopping:Clothing"
+"Women&#39;s Crochet Swim Cover Up Dress - Wild Fable" = "Shopping:Clothing"
+"Women&#39;s High-Rise ButterBliss Bike Shorts - Wild Fable" = "Shopping:Clothing"
+
+# Target: Kids Toys
+"LEGO Creator 3 in 1 Wild Animals" = "Kids:Toys"
+"Unicorn Academy, Rainbow Light-up Wildstar" = "Kids:Toys"
+
+# Target: Kids Activities / Craft Kits
+"Crochet Coaster and Basket Craft Kit - Mondo Llama" = "Kids:Activities"
+"Hinkler Books Rainbow Unicorns Coloring Kit" = "Kids:Activities"
+"Halloween Activity Book - Mondo Llama" = "Kids:Activities"
+
+# Target: Kids School Supplies
+"Fiskars Pointed-Tip Softgrip School Supplies" = "Kids:School"
+"Five Star 1 Subject 100pg Wide Ruled Spiral Notebook" = "Kids:School"
+"Wide Ruled Red 1 Subject Flexible Cover Spiral Notebook" = "Kids:School"
+"Wide Ruled Orange 1 Subject Flexible Plastic Cover Spiral Notebook" = "Kids:School"
+"2 Pocket Plastic Folder with Prongs Orange" = "Kids:School"
+"2 Pocket Plastic Folder with Prongs Green" = "Kids:School"
+"Crayola 10ct Broad Line Markers" = "Kids:School"
+"5pk Fashion Highlighters" = "Kids:School"
+"Crayola 24ct Ultra Clean Washable Crayons" = "Kids:School"
+"#2 Wood Pencils 24ct" = "Kids:School"
+"Expo 8pk Dry Erase Markers Ultra Fine Tip" = "Kids:School"
+"Fulton Bag Co Upright Lunch Bag" = "Kids:School"
+
+# Target: Gift Bags / Wrapping
+"Small Polka Dot Gift Bag White - Spritz" = "Shopping:Gifts"
+"Medium Striped Gift Bag Colored - Spritz" = "Shopping:Gifts"
+"Large Polka Dot Gift Bag White - Spritz" = "Shopping:Gifts"
+"20ct Foil Dots Gift Wrap Tissue" = "Shopping:Gifts"
+"Carlton Cards Kids&#39; &#39;Celebrate in Style&#39;" = "Shopping:Gifts"
+
+# Target: Healthcare / First Aid
+"Neosporin Plus Pain Relief" = "Healthcare:Pharmacy"
+"Neosporin + Lidocaine Antibiotic" = "Healthcare:Pharmacy"
+"Welly Kids&#39; Flex Fabric Bandages" = "Healthcare:Pharmacy"
+"Johnson &#38; Johnson Band-Aid Brand First Aid" = "Healthcare:Pharmacy"
+"Band-Aid Brand Adhesive Waterproof Bandages" = "Healthcare:Pharmacy"
+"Waterproof Ultimate Flex Bandages" = "Healthcare:Pharmacy"
+"Hydrocolloid Bandages" = "Healthcare:Pharmacy"
+"SmartyPants Kids Plus Multivitamin" = "Healthcare:Pharmacy"
+"Breathe Right Lavender Scented Drug-Free Nasal Strips" = "Healthcare:Pharmacy"
+"FlowFlex Covid-19 Antigen Home Test" = "Healthcare:Pharmacy"
+
+# Target: Dental
+"Orajel Kids Paw Patrol Anticavity Fluoride Toothpaste" = "Healthcare:Dental"
+"Oral-B Essential Dental Floss" = "Healthcare:Dental"
+"Philips Sonicare C2 Optimal Plaque Control" = "Healthcare:Dental"
+
+# Target: Personal Care
+"L . Organic Cotton Full Size Multipack Refill Tampons" = "Personal Care:Grooming"
+"L . Organic Cotton Full Size Multipack Tampons - Light/Regular" = "Personal Care:Grooming"
+"L . Organic Cotton Full Size Multipack Tampons - Regular/Super" = "Personal Care:Grooming"
+"Old Spice Hardest Working Collection" = "Personal Care:Grooming"
+"Basic Cotton Rounds Nail Polish and Makeup Remover Pads" = "Personal Care:Grooming"
+"e.l.f. Wow Brow Gel" = "Personal Care:Beauty"
+
+# Target: Home & Garden Supplies
+"Cottonelle Ultra Clean Strong Toilet Paper" = "Home & Garden:Supplies"
+"Ultra Soft 3-Ply Facial Tissue" = "Home & Garden:Supplies"
+"Energizer 357 Batteries 3pk" = "Home & Garden:Supplies"
+
+# Target: Sun / Bug Protection
+"Sun Bum Original Sunscreen Spray" = "Health & Fitness:Supplements"
+"Sun Bum Lip Balm Tube" = "Health & Fitness:Supplements"
+"Sun Bum Sunscreen Face Stick" = "Health & Fitness:Supplements"
+"OFF! Adults and Kids Mosquito Repellent" = "Home & Garden:Supplies"
+"Thermacell Rechargeable Mosquito Repeller" = "Home & Garden:Supplies"
+
+# Target: Home Decor
+"(Set of 2) 16&#34;x20&#34; Architecture Framed Arts Neutrals - Threshold" = "Home & Garden:Furniture"
+
+# Target: Kids misc items
+"24oz Water Bottle - Blue - Embark" = "Shopping:General"
+
+# Target: Electronics
+"GEMS Wireless Over-Ear Headphones" = "Shopping:Electronics"
+
 [learned_rules]
 # System-managed rules from the learn command. Do not hand-edit.
 # Same format as user_rules.

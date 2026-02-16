@@ -1,4 +1,5 @@
 # Expense Tracker v3 configuration
+# Copy this file to config.toml and customize for your setup
 
 [general]
 output_dir = "output"
@@ -14,6 +15,7 @@ model = "claude-sonnet-4-20250514"
 api_key_env = "ANTHROPIC_API_KEY"  # Name of env var containing the API key
 
 # Account definitions
+# Add one [[accounts]] section for each bank/credit card you want to track
 [[accounts]]
 name = "Chase Credit Card"
 institution = "chase"
@@ -37,6 +39,7 @@ input_dir = "input/elevations"
 
 # Amazon enrichment accounts
 # Each account gets its own browser session and login.
+# Add one [[enrichment.amazon]] section per Amazon account.
 [[enrichment.amazon]]
 label = "primary"
 
@@ -45,7 +48,7 @@ label = "secondary"
 
 # Google Sheets integration (optional)
 # Configure this section to enable pushing data to Google Sheets.
-[sheets]
-credentials_file = "~/.ssh/lavietobey1-e51604059582.json"
-spreadsheet_id = "1Ej5nEvcvtXan0Y1b-4SPsaFIiEdYbWn87uv8u_q7BB4"
-worksheet_name = "Raw Data"
+# [sheets]
+# credentials_file = "path/to/your/google-service-account.json"
+# spreadsheet_id = "your-spreadsheet-id-here"
+# worksheet_name = "Raw Data"

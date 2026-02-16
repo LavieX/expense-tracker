@@ -296,6 +296,140 @@ ITEM_QTY_SELECTOR = ", ".join([
     'span[class*="Quantity"]',
 ])
 
+# ---------------------------------------------------------------------------
+# Order detail page selectors.
+#
+# The detail page shows each item with its name, price, quantity, and image.
+# Target's 2025-2026 detail page uses a different layout than the list view.
+# Items are displayed in shipment groups (shipped, pickup, delivery) with
+# structured item cards that include price and quantity information.
+# ---------------------------------------------------------------------------
+
+# Selector for the "View purchase" / "View order details" link on an order card.
+# This link navigates from the list view to the order detail page.
+ORDER_DETAIL_LINK_SELECTOR = ", ".join([
+    'a[href*="/orders/"]',
+    '[data-test="order-details-link"]',
+    '[data-test="store-order-details-link"]',
+    'a[aria-label*="View purchase"]',
+    'a[aria-label*="View order"]',
+])
+
+# Selector for the detail page content wrapper (used to detect page load).
+DETAIL_PAGE_READY_SELECTOR = ", ".join([
+    # 2025-2026: detail page layout
+    'div[class*="orderDetailPage"]',
+    'div[class*="OrderDetailPage"]',
+    'div[class*="orderDetail"]',
+    'div[class*="OrderDetail"]',
+    # Order summary section (always present on detail pages)
+    '[data-test="order-summary"]',
+    '[data-test="orderSummary"]',
+    '[data-testid="order-summary"]',
+    '[data-testid="orderSummary"]',
+    'div[class*="orderSummary"]',
+    'div[class*="OrderSummary"]',
+    # Shipment groups contain the item details
+    'div[class*="shipmentGroup"]',
+    'div[class*="ShipmentGroup"]',
+    'div[class*="fulfillmentGroup"]',
+    'div[class*="FulfillmentGroup"]',
+    # Item cards on the detail page
+    'div[class*="itemDetail"]',
+    'div[class*="ItemDetail"]',
+    'div[class*="productDetail"]',
+    'div[class*="ProductDetail"]',
+    # Legacy selectors
+    '[data-test="@web/account/OrderDetailPage"]',
+    '[data-test="order-detail-page"]',
+    '[data-testid="order-detail-page"]',
+])
+
+# Selector for individual item rows on the detail page.
+# These are structured differently from the list view thumbnails.
+DETAIL_ITEM_SELECTOR = ", ".join([
+    # 2025-2026: item rows in shipment groups
+    'div[class*="itemDetail"]',
+    'div[class*="ItemDetail"]',
+    'div[class*="productDetail"]',
+    'div[class*="ProductDetail"]',
+    'div[class*="itemRow"]',
+    'div[class*="ItemRow"]',
+    'div[class*="orderItem"]',
+    'div[class*="OrderItem"]',
+    # Legacy structured item cards
+    '[data-test="@web/account/OrderItemCard"]',
+    '[data-test="@web/account/OrderItem"]',
+    '[data-test="order-item-card"]',
+    '[data-test="orderItemCard"]',
+    '[data-testid="order-item-card"]',
+    '[data-testid="orderItemCard"]',
+    '[data-test="order-item"]',
+    '[data-testid="order-item"]',
+])
+
+# Selector for the item name on the detail page.
+DETAIL_ITEM_NAME_SELECTOR = ", ".join([
+    # Detail page typically has structured text elements, not just img alt
+    'a[data-test="product-title"]',
+    '[data-test="product-title"]',
+    '[data-test="item-title"]',
+    '[data-test="itemTitle"]',
+    '[data-testid="product-title"]',
+    '[data-testid="item-title"]',
+    'a[class*="itemTitle"]',
+    'a[class*="ItemTitle"]',
+    'a[class*="productTitle"]',
+    'a[class*="ProductTitle"]',
+    'span[class*="itemName"]',
+    'span[class*="ItemName"]',
+    'div[class*="itemName"]',
+    'div[class*="ItemName"]',
+    'h3 a',
+    'h4 a',
+    # Fallback to img alt (detail page may also use images)
+    'img[alt]',
+])
+
+# Selector for item price on the detail page.
+DETAIL_ITEM_PRICE_SELECTOR = ", ".join([
+    '[data-test="order-item-price"]',
+    '[data-test="orderItemPrice"]',
+    '[data-test="item-price"]',
+    '[data-test="itemPrice"]',
+    '[data-test="current-price"]',
+    '[data-testid="order-item-price"]',
+    '[data-testid="orderItemPrice"]',
+    '[data-testid="item-price"]',
+    '[data-testid="current-price"]',
+    'span[class*="itemPrice"]',
+    'span[class*="ItemPrice"]',
+    'span[class*="price"]',
+    'span[data-test="current-price"] span',
+])
+
+# Selector for item quantity on the detail page.
+DETAIL_ITEM_QTY_SELECTOR = ", ".join([
+    '[data-test="order-item-qty"]',
+    '[data-test="orderItemQty"]',
+    '[data-test="item-qty"]',
+    '[data-test="itemQty"]',
+    '[data-testid="order-item-qty"]',
+    '[data-testid="orderItemQty"]',
+    '[data-testid="item-qty"]',
+    '[data-testid="itemQty"]',
+    'span[class*="itemQty"]',
+    'span[class*="ItemQty"]',
+    'span[class*="quantity"]',
+    'span[class*="Quantity"]',
+    'div[class*="quantity"]',
+    'div[class*="Quantity"]',
+])
+
+# Delay between navigating to order detail pages (seconds).
+# Prevents rate-limiting by Target's servers.
+DETAIL_PAGE_NAV_DELAY = 1.5
+
 # Tab selectors for Online / In-store order history tabs.
 # Target's 2025-2026 tabs use ``data-test`` attributes AND ``id`` attributes.
 TAB_ONLINE_SELECTOR = ", ".join([
@@ -322,6 +456,63 @@ TAB_CONTENT_INSTORE_SELECTOR = ", ".join([
     '#tabContent-tab-Instore',
 ])
 
+# "Load more" / "Show more" / pagination button selectors.
+# Target may use a button to reveal additional orders instead of (or in
+# addition to) infinite scroll.
+LOAD_MORE_SELECTOR = ", ".join([
+    'button[data-test="load-more"]',
+    'button[data-test="loadMore"]',
+    'button[data-test="show-more"]',
+    'button[data-test="showMore"]',
+    'button[data-test="@web/account/LoadMoreOrders"]',
+    'button[data-test="@web/orders/LoadMore"]',
+    'button[data-testid="load-more"]',
+    'button[data-testid="loadMore"]',
+    'button[data-testid="show-more"]',
+    'button[data-testid="showMore"]',
+    # Text-based fallbacks (Playwright comma-separated selectors)
+    'button:has-text("Load more")',
+    'button:has-text("Show more")',
+    'button:has-text("View more orders")',
+    'button:has-text("See more orders")',
+    'a:has-text("Load more")',
+    'a:has-text("Show more")',
+    'a:has-text("View more orders")',
+    'a:has-text("See more orders")',
+    # CSS-class-based fallbacks
+    'button[class*="loadMore"]',
+    'button[class*="LoadMore"]',
+    'button[class*="showMore"]',
+    'button[class*="ShowMore"]',
+    'a[class*="loadMore"]',
+    'a[class*="LoadMore"]',
+])
+
+# Pagination link selectors (traditional next-page navigation).
+PAGINATION_NEXT_SELECTOR = ", ".join([
+    'a[data-test="next-page"]',
+    'a[data-test="nextPage"]',
+    'a[data-testid="next-page"]',
+    'button[data-test="next-page"]',
+    'button[data-test="nextPage"]',
+    'button[aria-label="Next page"]',
+    'a[aria-label="Next page"]',
+    'a[aria-label="Next"]',
+    'li.a-last a',  # Amazon-style fallback
+    '[class*="pagination"] a:last-child',
+    'nav[aria-label*="pagination"] a:last-child',
+])
+
+# Maximum number of scroll/load-more attempts before giving up.
+# Each attempt scrolls to the bottom and waits for new content.
+MAX_SCROLL_ATTEMPTS = 30
+
+# Seconds to wait after each scroll for new content to appear.
+SCROLL_WAIT_SECONDS = 2.0
+
+# Number of consecutive scroll attempts with no new cards before stopping.
+SCROLL_STABLE_THRESHOLD = 3
+
 # Regex patterns used for text-based extraction from order card inner text.
 # Target's order cards put date, total, and order ID in plain ``<p>`` tags
 # with utility CSS classes (no ``data-test`` attributes), so CSS selectors
@@ -334,6 +525,9 @@ _DATE_RE = re.compile(
 )
 _ORDER_TOTAL_RE = re.compile(r"\$[\d,]+\.\d{2}")
 _ORDER_ID_RE = re.compile(r"#(\d{9,})")
+# In-store order IDs use a dash-separated format (e.g. "6028-2218-0085-0622").
+# These appear in card text without a "#" prefix and are not matched by _ORDER_ID_RE.
+_INSTORE_ORDER_ID_RE = re.compile(r"\b(\d{4}-\d{4}-\d{4}-\d{4})\b")
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -371,6 +565,7 @@ class TargetOrder:
     items: list[TargetLineItem] = field(default_factory=list)
     fulfillment_type: str = ""  # "shipped", "pickup", "delivery"
     payment_method: str = ""  # "redcard", "debit", "credit", "gift_card"
+    detail_url: str = ""  # URL to the order detail page (for price scraping)
 
     @property
     def has_gift_card_payment(self) -> bool:
@@ -714,10 +909,33 @@ def scrape_target_orders(
             seen_order_ids: set[str] = set()
             total_cards_found = 0
 
-            for tab_name, tab_selector in [
+            tabs_to_scrape = [
                 ("In-store", TAB_INSTORE_SELECTOR),
                 ("Online", TAB_ONLINE_SELECTOR),
-            ]:
+            ]
+            for tab_idx, (tab_name, tab_selector) in enumerate(tabs_to_scrape):
+                # Between tabs, reload the orders page to get a clean SPA
+                # state.  _scrape_current_page_orders may have navigated
+                # away (to order detail pages) and back, leaving the SPA
+                # in an inconsistent state where the tab buttons exist but
+                # the tab panel content is stale or missing.
+                if tab_idx > 0:
+                    logger.debug(
+                        "Reloading order history page before %r tab.", tab_name,
+                    )
+                    try:
+                        page.goto(
+                            "https://www.target.com/orders",
+                            wait_until="networkidle",
+                        )
+                        page.wait_for_selector(PAGE_READY_SELECTOR, timeout=15000)
+                        time.sleep(2)
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to reload orders page before %r tab: %s",
+                            tab_name, exc,
+                        )
+
                 tab_orders = _scrape_tab(
                     page, tab_name, tab_selector,
                     month_start, month_end, seen_order_ids, auth_dir,
@@ -783,8 +1001,26 @@ def _scrape_tab(
         logger.debug("Tab %r not found on page (selector: %s)", tab_name, tab_selector)
         return None
 
-    logger.info("Clicking %r tab", tab_name)
-    tab_button.click()
+    # Snapshot order card count and first-card text *before* clicking the
+    # tab so we can detect when the SPA has actually swapped tab content.
+    pre_click_card_count = len(page.query_selector_all(ORDER_CARD_SELECTOR))
+    pre_click_first_text = ""
+    try:
+        pre_cards = page.query_selector_all(ORDER_CARD_SELECTOR)
+        if pre_cards:
+            pre_click_first_text = pre_cards[0].inner_text()[:200]
+    except Exception:
+        pass
+
+    # Check if the tab is already selected (aria-selected="true").
+    # If so, clicking it again would be a no-op on some SPA implementations,
+    # but we still want to ensure the content panel is loaded.
+    is_already_selected = tab_button.get_attribute("aria-selected") == "true"
+    if is_already_selected:
+        logger.debug("Tab %r is already selected, skipping click", tab_name)
+    else:
+        logger.info("Clicking %r tab", tab_name)
+        tab_button.click()
 
     # Wait for the tab content to load.  Target's SPA replaces the panel
     # content when the tab is activated; give it time to render.
@@ -806,9 +1042,345 @@ def _scrape_tab(
 
     time.sleep(2)  # extra settle time for React re-render
 
-    return _scrape_current_page_orders(
+    # After tab switch, explicitly wait for order cards to appear.
+    # The tab panel may render before its order cards finish loading --
+    # especially on the Online tab where orders are fetched via a
+    # separate API call after the panel mounts.
+    #
+    # Two-phase wait: first wait for any card selector to appear, then
+    # verify that the tab content has *actually changed* by polling for
+    # a change in card count or card text.  This prevents the scraper
+    # from reading stale cards from the previous tab while the SPA is
+    # still swapping content.
+    try:
+        page.wait_for_selector(ORDER_CARD_SELECTOR, timeout=15000)
+    except Exception:
+        # No order cards appeared within 15 s.  Log diagnostics so we
+        # can tell whether the tab is genuinely empty or the selectors
+        # missed the DOM structure.
+        logger.info(
+            "No order cards found on %r tab after waiting 15 s. "
+            "Tab may be empty or selectors may need updating.",
+            tab_name,
+        )
+        # Dump the tab's HTML for offline inspection.
+        _dump_debug_html(page, auth_dir)
+
+    # When switching from one tab to another, the SPA may briefly show
+    # the old tab's cards before replacing them.  Poll for up to 10 s
+    # to confirm the content has changed (card count differs, or -- for
+    # tabs with similar card counts -- the first card's text differs).
+    if not is_already_selected:
+        _wait_for_tab_content_change(
+            page, pre_click_card_count, pre_click_first_text, tab_name,
+        )
+
+    result = _scrape_current_page_orders(
         page, month_start, month_end, seen_order_ids, auth_dir,
     )
+    logger.info(
+        "Tab %r: found %d order cards, %d matched target month.",
+        tab_name, result[1], len(result[0]),
+    )
+    return result
+
+
+def _wait_for_tab_content_change(
+    page,
+    pre_click_card_count: int,
+    pre_click_first_text: str,
+    tab_name: str,
+    timeout_seconds: float = 10.0,
+    poll_interval: float = 0.5,
+) -> None:
+    """Poll until the visible order cards differ from the pre-click state.
+
+    Target's React SPA replaces the tab panel content asynchronously after
+    a tab click.  There is a brief window where ``query_selector_all``
+    returns stale cards from the previous tab.  This function waits until
+    the card count changes *or* the first card's inner text changes,
+    indicating the new tab's content has rendered.
+
+    If the timeout expires without a change, execution continues anyway
+    (the tab may genuinely have the same number of cards, or be empty).
+
+    Args:
+        page: Playwright page object.
+        pre_click_card_count: Number of order cards visible before the
+            tab was clicked.
+        pre_click_first_text: Inner text (first 200 chars) of the first
+            order card before the tab was clicked (empty if no cards).
+        tab_name: Tab name for logging.
+        timeout_seconds: Maximum time to wait for a content change.
+        poll_interval: Seconds between polling attempts.
+    """
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        current_cards = page.query_selector_all(ORDER_CARD_SELECTOR)
+        current_count = len(current_cards)
+
+        # If the count changed, the new tab's content is (at least
+        # partially) loaded.
+        if current_count != pre_click_card_count:
+            logger.debug(
+                "Tab %r: card count changed %d -> %d after tab switch.",
+                tab_name, pre_click_card_count, current_count,
+            )
+            # Give an extra moment for remaining cards to render.
+            time.sleep(1)
+            return
+
+        # If the count is the same but the card text changed, the SPA
+        # swapped the content.
+        if current_cards and pre_click_first_text:
+            try:
+                current_first_text = current_cards[0].inner_text()[:200]
+                if current_first_text != pre_click_first_text:
+                    logger.debug(
+                        "Tab %r: first card text changed after tab switch.",
+                        tab_name,
+                    )
+                    time.sleep(1)
+                    return
+            except Exception:
+                pass
+
+        time.sleep(poll_interval)
+
+    logger.debug(
+        "Tab %r: card content did not visibly change within %.1f s "
+        "after tab switch (pre-click count: %d). Proceeding anyway.",
+        tab_name, timeout_seconds, pre_click_card_count,
+    )
+
+
+def _find_scrollable_container(page) -> str | None:
+    """Find the scrollable container that holds the order cards.
+
+    Target's React SPA may render order cards inside a scrollable ``<div>``
+    rather than using the main page body scroll.  When that happens,
+    ``window.scrollTo(0, document.body.scrollHeight)`` will not trigger
+    lazy loading because the overflow container -- not the window -- is
+    the element that needs to scroll.
+
+    This function looks for a scrollable ancestor of the first order card.
+    If found it returns a CSS selector string for that element; otherwise
+    it returns ``None`` (meaning the window/body scroll is fine).
+
+    Args:
+        page: Playwright page object.
+
+    Returns:
+        A CSS selector string for the scrollable container element, or
+        ``None`` if the window itself is the scroll host.
+    """
+    # The first item of ORDER_CARD_SELECTOR (before the first comma).
+    first_card_sel = ORDER_CARD_SELECTOR.split(",")[0].strip()
+
+    js = """
+    ((cardSelector) => {
+        const card = document.querySelector(cardSelector);
+        if (!card) return null;
+        let el = card.parentElement;
+        while (el && el !== document.body && el !== document.documentElement) {
+            const style = window.getComputedStyle(el);
+            const overflow = style.overflowY;
+            if ((overflow === 'auto' || overflow === 'scroll')
+                && el.scrollHeight > el.clientHeight + 50) {
+                if (el.id) return '#' + CSS.escape(el.id);
+                const dt = el.getAttribute('data-test');
+                if (dt) return '[data-test="' + dt + '"]';
+                // No id or data-test: stamp a custom attribute so we can
+                // target this element reliably on subsequent calls.
+                el.setAttribute('data-expense-scroll', 'true');
+                return '[data-expense-scroll="true"]';
+            }
+            el = el.parentElement;
+        }
+        return null;
+    })
+    """
+    try:
+        selector = page.evaluate(js, first_card_sel)
+        if selector:
+            logger.debug("Found scrollable container: %s", selector)
+            return selector
+    except Exception as exc:
+        logger.debug("Failed to detect scrollable container: %s", exc)
+    return None
+
+
+def _scroll_to_bottom(page, container_selector: str | None) -> None:
+    """Scroll the appropriate element to the bottom of its content.
+
+    When a scrollable container is detected, this scrolls *both* the
+    container and the window.  Some lazy-load / infinite-scroll listeners
+    are attached to the window (``scroll`` or ``IntersectionObserver``
+    rooted at the viewport), so scrolling only the container element may
+    not trigger them.  Scrolling both is harmless and covers both cases.
+
+    Args:
+        page: Playwright page object.
+        container_selector: CSS selector for a scrollable container, or
+            ``None`` to scroll the window/body.
+    """
+    if container_selector:
+        page.evaluate(
+            """(selector) => {
+                const el = document.querySelector(selector);
+                if (el) el.scrollTop = el.scrollHeight;
+                window.scrollTo(0, document.body.scrollHeight);
+            }""",
+            container_selector,
+        )
+    else:
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+
+
+def _scroll_to_top(page, container_selector: str | None) -> None:
+    """Scroll the appropriate element back to the top.
+
+    Args:
+        page: Playwright page object.
+        container_selector: CSS selector for a scrollable container, or
+            ``None`` to scroll the window/body.
+    """
+    if container_selector:
+        page.evaluate(
+            """(selector) => {
+                const el = document.querySelector(selector);
+                if (el) el.scrollTop = 0;
+            }""",
+            container_selector,
+        )
+    else:
+        page.evaluate("window.scrollTo(0, 0)")
+
+
+def _scroll_and_load_all_orders(page, auth_dir: Path) -> None:
+    """Scroll down and click "Load more" buttons to reveal all order cards.
+
+    Target's order history page may use one or more of these patterns to
+    show additional orders beyond the initial page load:
+
+    1. **Infinite scroll** -- new order cards load as the user scrolls to
+       the bottom of the page.
+    2. **"Load more" / "Show more" button** -- a button at the bottom that
+       fetches the next batch of orders when clicked.
+    3. **Traditional pagination** -- "Next page" links (less common on
+       Target but handled as a fallback).
+
+    The function first detects whether the order list lives inside a
+    scrollable ``<div>`` container (common in React SPAs) or uses the
+    main window scroll.  It then scrolls the correct element.
+
+    This function tries all three strategies in a loop until the number of
+    visible order cards stabilises (no new cards after several attempts).
+
+    Args:
+        page: Playwright page object, already positioned on an order
+            history tab.
+        auth_dir: Directory for debug HTML dumps (unused here, reserved
+            for future diagnostics).
+    """
+    previous_count = len(page.query_selector_all(ORDER_CARD_SELECTOR))
+    stable_rounds = 0
+
+    # Detect whether order cards live inside a scrollable container.
+    scroll_container = _find_scrollable_container(page)
+
+    logger.debug(
+        "Starting scroll/load-more loop. Initial order card count: %d, "
+        "scroll container: %s",
+        previous_count,
+        scroll_container or "window (body)",
+    )
+
+    for attempt in range(1, MAX_SCROLL_ATTEMPTS + 1):
+        # --- Strategy 1: Click a "Load more" / "Show more" button ---
+        load_more_clicked = False
+        try:
+            # Use query_selector (not wait_for_selector) -- if the button
+            # is absent we fall through to scrolling immediately.
+            load_more_btn = page.query_selector(LOAD_MORE_SELECTOR)
+            if load_more_btn and load_more_btn.is_visible():
+                logger.debug(
+                    "Scroll attempt %d: clicking 'Load more' button", attempt,
+                )
+                load_more_btn.scroll_into_view_if_needed()
+                load_more_btn.click()
+                load_more_clicked = True
+                # Wait for network activity triggered by the click.
+                try:
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    pass
+                # Extra settle time for React to re-render the new cards.
+                time.sleep(1)
+        except Exception as exc:
+            logger.debug("Load-more button interaction failed: %s", exc)
+
+        # --- Strategy 2: Click a pagination "Next page" link ---
+        if not load_more_clicked:
+            try:
+                next_link = page.query_selector(PAGINATION_NEXT_SELECTOR)
+                if next_link and next_link.is_visible():
+                    logger.debug(
+                        "Scroll attempt %d: clicking 'Next page' link",
+                        attempt,
+                    )
+                    next_link.scroll_into_view_if_needed()
+                    next_link.click()
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                    except Exception:
+                        pass
+                    # After pagination, wait for new cards to render.
+                    try:
+                        page.wait_for_selector(
+                            ORDER_CARD_SELECTOR, timeout=10000,
+                        )
+                    except Exception:
+                        pass
+            except Exception as exc:
+                logger.debug("Pagination link interaction failed: %s", exc)
+
+        # --- Strategy 3: Scroll to bottom (infinite scroll) ---
+        # Always scroll to the bottom of the correct container, even after
+        # a "Load more" click.  This ensures that any newly loaded content
+        # (or a new "Load more" button below the fold) becomes visible for
+        # the next iteration.  Scrolling also triggers infinite-scroll
+        # listeners attached to the container or the window.
+        _scroll_to_bottom(page, scroll_container)
+
+        # Wait for any lazy-loaded content to appear.
+        time.sleep(SCROLL_WAIT_SECONDS)
+
+        # Recount order cards.
+        current_count = len(page.query_selector_all(ORDER_CARD_SELECTOR))
+        logger.debug(
+            "Scroll attempt %d: card count %d -> %d",
+            attempt, previous_count, current_count,
+        )
+
+        if current_count > previous_count:
+            # New cards appeared -- reset the stability counter.
+            stable_rounds = 0
+            previous_count = current_count
+        else:
+            stable_rounds += 1
+            if stable_rounds >= SCROLL_STABLE_THRESHOLD:
+                logger.debug(
+                    "No new cards after %d consecutive attempts; "
+                    "stopping scroll loop. Final count: %d",
+                    SCROLL_STABLE_THRESHOLD, current_count,
+                )
+                break
+
+    # Scroll back to top so that subsequent card queries start from a
+    # consistent viewport position.
+    _scroll_to_top(page, scroll_container)
+    time.sleep(0.5)
 
 
 def _scrape_current_page_orders(
@@ -819,6 +1391,16 @@ def _scrape_current_page_orders(
     auth_dir: Path,
 ) -> tuple[list[TargetOrder], int]:
     """Scrape order cards from the currently visible page content.
+
+    After the initial cards render, this function scrolls and clicks
+    "Load more" buttons to reveal all available order cards before
+    collecting them.
+
+    Once order cards are parsed from the list view (which only provides
+    item names, not prices), the function navigates into each order's
+    detail page to scrape per-item prices.  If a detail page fails to
+    load or parse, the order falls back to $0-price items (the entire
+    total lands in a "Tax/Adjustments" line in the cache file).
 
     Args:
         page: Playwright page object.
@@ -840,6 +1422,9 @@ def _scrape_current_page_orders(
         page.wait_for_selector(ORDER_CARD_SELECTOR, timeout=10000)
     except Exception:
         pass  # No order cards -- could be empty tab or loading delay
+
+    # Scroll / click "Load more" to reveal all order cards before scraping.
+    _scroll_and_load_all_orders(page, auth_dir)
 
     order_cards = page.query_selector_all(ORDER_CARD_SELECTOR)
 
@@ -891,7 +1476,618 @@ def _scrape_current_page_orders(
         )
         _dump_debug_html(page, auth_dir)
 
+    # --- Navigate into each order's detail page to get per-item prices ---
+    # The list view only shows item thumbnails (names from img alt) with no
+    # prices.  The detail page has structured item cards with prices.
+    orders_needing_prices = [
+        o for o in orders
+        if o.detail_url and any(item.price == Decimal("0") for item in o.items)
+    ]
+
+    if orders_needing_prices:
+        logger.info(
+            "Navigating to %d order detail page(s) to scrape item prices.",
+            len(orders_needing_prices),
+        )
+        # Remember the list page URL so we can return to it after each
+        # detail page visit.
+        list_page_url = page.url
+
+        for order in orders_needing_prices:
+            _scrape_detail_page_prices(page, order, auth_dir)
+            # Navigate back to the order list page before the next order.
+            try:
+                page.goto(list_page_url, wait_until="networkidle")
+                time.sleep(1)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to navigate back to order list after order %s: %s",
+                    order.order_id, exc,
+                )
+                # Try one more time with a fresh goto.
+                try:
+                    page.goto(
+                        "https://www.target.com/orders",
+                        wait_until="networkidle",
+                    )
+                    time.sleep(2)
+                except Exception:
+                    pass
+
     return orders, len(order_cards)
+
+
+def _scrape_detail_page_prices(
+    page,
+    order: TargetOrder,
+    auth_dir: Path,
+) -> None:
+    """Navigate to an order's detail page and scrape per-item prices.
+
+    Updates ``order.items`` in place.  If the detail page cannot be loaded
+    or parsed, the order's items are left unchanged (with $0 prices), so
+    the downstream cache writer will put the entire total into a
+    "Tax/Adjustments" line -- the same behaviour as before detail-page
+    scraping was added.
+
+    Args:
+        page: Playwright page object.
+        order: The order whose items need prices.  ``order.detail_url``
+            must be set.
+        auth_dir: Directory for debug HTML dumps on failure.
+    """
+    if not order.detail_url:
+        return
+
+    logger.info(
+        "Scraping detail page for order %s: %s",
+        order.order_id, order.detail_url,
+    )
+
+    # Rate-limit: pause before navigating to avoid triggering Target's
+    # bot detection.
+    time.sleep(DETAIL_PAGE_NAV_DELAY)
+
+    try:
+        page.goto(order.detail_url, wait_until="networkidle")
+    except Exception as exc:
+        logger.warning(
+            "Failed to navigate to detail page for order %s: %s",
+            order.order_id, exc,
+        )
+        return
+
+    # Wait for the detail page to render.  Target's React SPA takes a
+    # moment to hydrate the detail view; we use multiple signals to
+    # detect readiness.
+    detail_page_loaded = False
+    try:
+        page.wait_for_selector(DETAIL_PAGE_READY_SELECTOR, timeout=15000)
+        detail_page_loaded = True
+    except Exception:
+        # The detail page may use an unexpected layout.  Try waiting for
+        # any price-like text to appear on the page as a fallback signal.
+        logger.debug(
+            "Detail page ready selector not found for order %s; "
+            "trying text-based fallback.",
+            order.order_id,
+        )
+
+    # If the primary selector didn't fire, wait for any element that
+    # contains a dollar-amount (the detail page always shows prices).
+    if not detail_page_loaded:
+        try:
+            page.wait_for_function(
+                """() => {
+                    const text = document.body ? document.body.innerText : '';
+                    return /\\$\\d+\\.\\d{2}/.test(text);
+                }""",
+                timeout=10000,
+            )
+        except Exception:
+            logger.debug(
+                "No price text detected on detail page for order %s after 10 s.",
+                order.order_id,
+            )
+
+    # Extra settle time for React re-render of item cards.
+    time.sleep(2)
+
+    # --- Strategy 1: Structured item elements on the detail page ---
+    detail_items = _extract_detail_page_items(page, order, auth_dir)
+
+    if detail_items:
+        # Successfully scraped items with prices from the detail page.
+        # Replace the order's list-view items (which have $0 prices) with
+        # the detail-page items that include real prices.
+        logger.info(
+            "Order %s: scraped %d item(s) with prices from detail page "
+            "(CSS selector strategy).",
+            order.order_id, len(detail_items),
+        )
+        order.items = detail_items
+        return
+
+    # --- Strategy 2: JavaScript DOM walk ---
+    # CSS selectors are brittle with Target's frequent DOM changes.
+    # This strategy uses JavaScript to walk the page DOM and find
+    # elements that look like item cards (contain both a product name
+    # and a dollar price).
+    js_items = _extract_detail_page_items_via_js(page, order)
+    if js_items:
+        logger.info(
+            "Order %s: scraped %d item(s) via JS DOM walk from detail page.",
+            order.order_id, len(js_items),
+        )
+        order.items = js_items
+        return
+
+    # --- Strategy 3: Regex on full page text ---
+    # If structured selectors and JS didn't find items, try parsing the
+    # visible page text for item-name / price pairs.
+    text_items = _extract_detail_page_items_from_text(page, order)
+    if text_items:
+        logger.info(
+            "Order %s: scraped %d item(s) via text parsing from detail page.",
+            order.order_id, len(text_items),
+        )
+        order.items = text_items
+        return
+
+    logger.warning(
+        "Order %s: could not scrape item prices from detail page. "
+        "Falling back to $0-price items from list view.",
+        order.order_id,
+    )
+    _dump_debug_html(page, auth_dir)
+
+
+def _extract_detail_page_items(
+    page,
+    order: TargetOrder,
+    auth_dir: Path,
+) -> list[TargetLineItem]:
+    """Extract item details from the order detail page using CSS selectors.
+
+    Looks for structured item elements (divs with item name, price, and
+    quantity sub-elements) on the detail page.
+
+    Args:
+        page: Playwright page object, on the detail page.
+        order: The order being scraped (for logging context).
+        auth_dir: Directory for debug HTML dumps.
+
+    Returns:
+        List of TargetLineItem with prices populated, or an empty list
+        if structured items could not be found.
+    """
+    items: list[TargetLineItem] = []
+
+    item_elements = page.query_selector_all(DETAIL_ITEM_SELECTOR)
+    if not item_elements:
+        logger.debug(
+            "No detail item elements found for order %s (selector: %s).",
+            order.order_id, DETAIL_ITEM_SELECTOR[:80],
+        )
+        return items
+
+    for item_el in item_elements:
+        # --- Extract item name ---
+        name = ""
+        name_el = item_el.query_selector(DETAIL_ITEM_NAME_SELECTOR)
+        if name_el:
+            tag = name_el.evaluate("el => el.tagName.toLowerCase()")
+            if tag == "img":
+                name = (name_el.get_attribute("alt") or "").strip()
+            else:
+                name = name_el.inner_text().strip()
+
+        if not name:
+            # Try getting name from any img alt inside the item element.
+            img_el = item_el.query_selector("img[alt]")
+            if img_el:
+                name = (img_el.get_attribute("alt") or "").strip()
+
+        if not name:
+            logger.debug(
+                "Skipping item element with no extractable name "
+                "in order %s.", order.order_id,
+            )
+            continue
+
+        # Strip quantity suffix from name (e.g. " - quantity: 2").
+        name, alt_qty = _parse_quantity_from_name(name)
+
+        # --- Extract item price ---
+        price = Decimal("0")
+        price_el = item_el.query_selector(DETAIL_ITEM_PRICE_SELECTOR)
+        if price_el:
+            price = _parse_price(price_el.inner_text().strip())
+
+        # If the CSS selector missed the price, try regex on the item
+        # element's inner text for a dollar amount.
+        if price == Decimal("0"):
+            item_text = item_el.inner_text()
+            price_matches = _ORDER_TOTAL_RE.findall(item_text)
+            if price_matches:
+                # Take the first price-like value (usually the item price;
+                # later values might be strikethrough/original prices).
+                price = _parse_price(price_matches[0])
+
+        # --- Extract quantity ---
+        quantity = 1
+        qty_el = item_el.query_selector(DETAIL_ITEM_QTY_SELECTOR)
+        if qty_el:
+            qty_text = qty_el.inner_text().strip()
+            try:
+                quantity = int(
+                    "".join(c for c in qty_text if c.isdigit()) or "1"
+                )
+            except ValueError:
+                quantity = 1
+
+        # Use the alt-text quantity if the CSS selector didn't find one.
+        if alt_qty > 1 and quantity == 1:
+            quantity = alt_qty
+
+        # Also try regex on the item element's text for "Qty: N",
+        # "Quantity: N", or "x N" / "xN" patterns.
+        if quantity == 1:
+            item_text = item_el.inner_text()
+            qty_match = re.search(
+                r"(?:qty|quantity)\s*[:=]?\s*(\d+)", item_text, re.IGNORECASE,
+            )
+            if not qty_match:
+                # Try "x2", "x 2", "× 2" patterns (multiplication sign).
+                qty_match = re.search(
+                    r"(?:^|\s)[x\u00d7]\s*(\d+)(?:\s|$)", item_text,
+                )
+            if qty_match:
+                try:
+                    parsed_qty = int(qty_match.group(1))
+                    if parsed_qty > 1:
+                        quantity = parsed_qty
+                except ValueError:
+                    pass
+
+        items.append(TargetLineItem(name=name, price=price, quantity=quantity))
+
+    # Sanity check: if we found items but none have a price, discard them
+    # (the selectors matched wrong elements).
+    if items and all(item.price == Decimal("0") for item in items):
+        logger.debug(
+            "Order %s: all %d detail items have $0 price; "
+            "discarding (likely wrong selectors).",
+            order.order_id, len(items),
+        )
+        return []
+
+    return items
+
+
+def _extract_detail_page_items_via_js(
+    page,
+    order: TargetOrder,
+) -> list[TargetLineItem]:
+    """Extract item details from the detail page using a JavaScript DOM walk.
+
+    This is a middle-ground strategy between CSS selectors (Strategy 1) and
+    raw text parsing (Strategy 3).  It runs JavaScript in the browser to
+    walk the DOM tree and find container elements that hold both a product
+    name and a dollar price.
+
+    The heuristic:
+    1. Find all ``<img>`` elements with meaningful ``alt`` text (likely
+       product images).
+    2. For each image, walk up the DOM to find an ancestor that also
+       contains a dollar price (``$X.XX``) in its text content.
+    3. Extract the price from that ancestor, and the name from the img alt.
+    4. Also look for quantity indicators (``Qty: N``) in the ancestor text.
+
+    This is resilient to CSS class name changes because it relies on
+    structural patterns (images near prices) rather than specific class
+    names or data-test attributes.
+
+    Args:
+        page: Playwright page object, on the detail page.
+        order: The order being scraped (for context / validation).
+
+    Returns:
+        List of TargetLineItem with prices, or empty list on failure.
+    """
+    js_code = """
+    (() => {
+        const results = [];
+        const priceRe = /\\$(\\d[\\d,]*\\.\\d{2})/;
+        const qtyRe = /(?:qty|quantity)\\s*[:=]?\\s*(\\d+)/i;
+        // Collect all images that look like product images (have alt text
+        // with at least 4 chars, not UI icons).
+        const imgs = Array.from(document.querySelectorAll('img[alt]'));
+        const seen = new Set();
+
+        for (const img of imgs) {
+            const alt = (img.alt || '').trim();
+            // Skip short alt text (icons, logos) and duplicates.
+            if (alt.length < 4 || seen.has(alt.toLowerCase())) continue;
+
+            // Walk up the DOM to find an ancestor that contains a price.
+            // Stop after 8 levels to avoid going too far up.
+            let el = img.parentElement;
+            let found = false;
+            for (let depth = 0; el && depth < 8; depth++, el = el.parentElement) {
+                if (el === document.body) break;
+                const text = el.innerText || '';
+                const pm = priceRe.exec(text);
+                if (!pm) continue;
+
+                // This ancestor contains a price.  Check if this looks
+                // like an item container (not a page-level summary) by
+                // verifying it doesn't contain too many price matches
+                // (a summary section would have subtotal, tax, total, etc.).
+                const allPrices = text.match(/\\$\\d[\\d,]*\\.\\d{2}/g) || [];
+                if (allPrices.length > 4) continue;
+
+                // Extract quantity.
+                const qm = qtyRe.exec(text);
+                const qty = qm ? parseInt(qm[1], 10) : 1;
+
+                // Extract the price.  If there are multiple prices in this
+                // container, prefer the one closest to the image (usually
+                // the first one that isn't part of the item name).
+                const price = pm[1].replace(/,/g, '');
+
+                results.push({
+                    name: alt,
+                    price: price,
+                    quantity: qty || 1
+                });
+                seen.add(alt.toLowerCase());
+                found = true;
+                break;
+            }
+        }
+
+        // If image-based extraction found nothing, try a second pass:
+        // look for link elements (product titles are often <a> tags) near
+        // price elements.
+        if (results.length === 0) {
+            const links = Array.from(document.querySelectorAll('a'));
+            for (const link of links) {
+                const name = (link.innerText || '').trim();
+                if (name.length < 4 || seen.has(name.toLowerCase())) continue;
+                // Skip links that look like navigation, not products.
+                if (/^(sign|log|cart|home|back|view|track|cancel)/i.test(name)) continue;
+                if (/^(order|shipping|payment|return|help)/i.test(name)) continue;
+
+                let el = link.parentElement;
+                for (let depth = 0; el && depth < 6; depth++, el = el.parentElement) {
+                    if (el === document.body) break;
+                    const text = el.innerText || '';
+                    const pm = priceRe.exec(text);
+                    if (!pm) continue;
+                    const allPrices = text.match(/\\$\\d[\\d,]*\\.\\d{2}/g) || [];
+                    if (allPrices.length > 4) continue;
+
+                    const qm = qtyRe.exec(text);
+                    const qty = qm ? parseInt(qm[1], 10) : 1;
+                    const price = pm[1].replace(/,/g, '');
+
+                    results.push({
+                        name: name,
+                        price: price,
+                        quantity: qty || 1
+                    });
+                    seen.add(name.toLowerCase());
+                    break;
+                }
+            }
+        }
+
+        return results;
+    })()
+    """
+
+    try:
+        raw_items = page.evaluate(js_code)
+    except Exception as exc:
+        logger.debug(
+            "JS DOM walk failed for order %s: %s", order.order_id, exc,
+        )
+        return []
+
+    if not raw_items:
+        return []
+
+    items: list[TargetLineItem] = []
+    known_list_names = {item.name.lower() for item in order.items}
+
+    for raw in raw_items:
+        name = raw.get("name", "").strip()
+        if not name:
+            continue
+
+        # Strip quantity suffix from name (e.g. " - quantity: 2").
+        name, alt_qty = _parse_quantity_from_name(name)
+
+        try:
+            price = Decimal(raw.get("price", "0"))
+        except Exception:
+            price = Decimal("0")
+
+        quantity = raw.get("quantity", 1) or 1
+        if alt_qty > 1 and quantity == 1:
+            quantity = alt_qty
+
+        if price > Decimal("0"):
+            items.append(TargetLineItem(name=name, price=price, quantity=quantity))
+
+    # Sanity check: items total should not wildly exceed the order total.
+    if items:
+        items_total = sum(item.price * item.quantity for item in items)
+        if items_total > order.order_total * Decimal("2.0"):
+            logger.debug(
+                "Order %s: JS-extracted items total $%s exceeds order total "
+                "$%s by >100%%; discarding as likely false positives.",
+                order.order_id, items_total, order.order_total,
+            )
+            return []
+
+    # Also discard if no extracted item matches any name from the list view.
+    # This helps avoid picking up recommended/related product items that
+    # appear on the detail page but aren't part of the order.
+    if items and known_list_names:
+        matched_any = False
+        for item in items:
+            item_lower = item.name.lower()
+            for known in known_list_names:
+                if len(known) < 4:
+                    continue
+                if known in item_lower or item_lower in known:
+                    matched_any = True
+                    break
+            if matched_any:
+                break
+        if not matched_any:
+            logger.debug(
+                "Order %s: JS-extracted items don't match any list-view "
+                "item names; discarding (likely wrong elements).",
+                order.order_id,
+            )
+            return []
+
+    return items
+
+
+def _extract_detail_page_items_from_text(
+    page,
+    order: TargetOrder,
+) -> list[TargetLineItem]:
+    """Fallback: extract item names and prices from the detail page text.
+
+    When CSS selectors fail (Target may have restructured the DOM), this
+    function scans the full page text for patterns that look like item
+    lines with associated prices.
+
+    The heuristic looks for lines that contain a dollar amount and are
+    preceded or followed by a line that looks like a product name (no
+    dollar sign, non-empty, not a section header).
+
+    Args:
+        page: Playwright page object, on the detail page.
+        order: The order being scraped (for context / matching).
+
+    Returns:
+        List of TargetLineItem, or empty list if parsing fails.
+    """
+    try:
+        page_text = page.inner_text("body")
+    except Exception:
+        return []
+
+    lines = [ln.strip() for ln in page_text.splitlines() if ln.strip()]
+
+    # Build a list of (name, price) pairs by scanning for price lines
+    # and associating them with adjacent non-price lines.
+    items: list[TargetLineItem] = []
+    known_list_names = {item.name.lower() for item in order.items}
+    used_name_indices: set[int] = set()
+
+    # Lines that are clearly section headers / summary labels, not products.
+    _HEADER_PREFIXES = (
+        "Order", "Shipping", "Tax", "Subtotal", "Total", "Items",
+        "Payment", "Delivery", "Shipped", "Picked up", "Estimated",
+        "Sign", "Log", "Cart", "Help", "Return", "Track", "Cancel",
+        "Back", "View all", "Contact", "Chat", "Email",
+    )
+
+    def _is_product_name_candidate(candidate: str) -> bool:
+        """Return True if the line looks like it could be a product name."""
+        if len(candidate) < 4:
+            return False
+        if _ORDER_TOTAL_RE.search(candidate):
+            return False
+        if not candidate[0].isalpha():
+            return False
+        if candidate.startswith(_HEADER_PREFIXES):
+            return False
+        return True
+
+    def _is_known_name(candidate: str) -> bool:
+        """Return True if the candidate matches a known item from the list view."""
+        candidate_lower = candidate.lower()
+        return any(
+            known in candidate_lower or candidate_lower in known
+            for known in known_list_names
+            if len(known) >= 4
+        )
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        price_match = _ORDER_TOTAL_RE.search(line)
+
+        if price_match:
+            price = _parse_price(price_match.group(0))
+            name = ""
+            name_idx = -1
+
+            # Look BACKWARD first (product name before price -- most common).
+            for offset in range(1, 5):
+                if i - offset < 0:
+                    break
+                idx = i - offset
+                if idx in used_name_indices:
+                    continue
+                candidate = lines[idx]
+                if not _is_product_name_candidate(candidate):
+                    continue
+                if _is_known_name(candidate) or len(candidate) >= 8:
+                    name = candidate
+                    name_idx = idx
+                    break
+
+            # Look FORWARD if backward search failed (price before name).
+            if not name:
+                for offset in range(1, 5):
+                    if i + offset >= len(lines):
+                        break
+                    idx = i + offset
+                    if idx in used_name_indices:
+                        continue
+                    candidate = lines[idx]
+                    if _ORDER_TOTAL_RE.search(candidate):
+                        break  # Hit the next price line -- stop looking forward
+                    if not _is_product_name_candidate(candidate):
+                        continue
+                    if _is_known_name(candidate) or len(candidate) >= 8:
+                        name = candidate
+                        name_idx = idx
+                        break
+
+            if name and price > Decimal("0"):
+                name, qty = _parse_quantity_from_name(name)
+                items.append(TargetLineItem(
+                    name=name, price=price, quantity=qty,
+                ))
+                if name_idx >= 0:
+                    used_name_indices.add(name_idx)
+        i += 1
+
+    # Sanity check: items total should not wildly exceed the order total.
+    # If it does, the text parser likely picked up wrong prices.
+    # Use a 2x threshold (not 1.5x) because detail pages may show original
+    # prices before discounts were applied.
+    if items:
+        items_total = sum(item.price * item.quantity for item in items)
+        if items_total > order.order_total * Decimal("2.0"):
+            logger.debug(
+                "Order %s: text-parsed items total $%s exceeds order total "
+                "$%s by >100%%; discarding as likely false positives.",
+                order.order_id, items_total, order.order_total,
+            )
+            return []
+
+    return items
 
 
 def _dump_debug_html(page, output_dir: Path) -> Path | None:
@@ -899,6 +2095,9 @@ def _dump_debug_html(page, output_dir: Path) -> Path | None:
 
     This is called when selectors fail so we can inspect the actual DOM
     that Target served and update selectors accordingly.
+
+    Each dump gets a unique timestamp suffix so that successive dumps
+    (e.g. one per tab) do not overwrite each other.
 
     Args:
         page: Playwright page object.
@@ -909,11 +2108,12 @@ def _dump_debug_html(page, output_dir: Path) -> Path | None:
     """
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
-        debug_path = output_dir / "debug-target-page.html"
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        debug_path = output_dir / f"debug-target-page-{timestamp}.html"
         html_content = page.content()
         debug_path.write_text(html_content, encoding="utf-8")
-        logger.error(
-            "Selector timeout -- dumped page HTML to %s (%d bytes). "
+        logger.warning(
+            "Dumped page HTML to %s (%d bytes). "
             "Inspect this file to find current Target DOM selectors.",
             debug_path,
             len(html_content),
@@ -955,7 +2155,9 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
 
     # Grab the "View purchase" link for supplementary data extraction.
     # Its aria-label encodes date + total; its href encodes the order ID.
-    view_link = card.query_selector('a[href*="/orders/"]')
+    # Use the broad ORDER_DETAIL_LINK_SELECTOR for resilience against DOM
+    # changes, rather than a single hardcoded selector.
+    view_link = card.query_selector(ORDER_DETAIL_LINK_SELECTOR)
     aria_label = ""
     link_href = ""
     if view_link:
@@ -998,10 +2200,16 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
     # --- Extract order ID ---
     order_id = ""
 
-    # Strategy 1: regex on inner text (matches #NNNNNNNNN -- Online orders)
+    # Strategy 1a: regex on inner text (matches #NNNNNNNNN -- Online orders)
     id_match = _ORDER_ID_RE.search(card_text)
     if id_match:
         order_id = id_match.group(1)
+
+    # Strategy 1b: regex for in-store dash-format IDs (e.g. "6028-2218-0085-0622")
+    if not order_id:
+        instore_id_match = _INSTORE_ORDER_ID_RE.search(card_text)
+        if instore_id_match:
+            order_id = instore_id_match.group(1)
 
     # Strategy 2: extract from href
     # Online orders:  /orders/102001197478538
@@ -1063,6 +2271,22 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
     # Try to get line items from the order card
     items = _scrape_order_items(page, card)
 
+    # Build the detail page URL for later navigation.
+    # The link_href is a relative path like "/orders/102001197478538" or
+    # "/orders/stores/5350-2218-0175-9554".
+    detail_url = ""
+    if link_href:
+        if link_href.startswith("http"):
+            detail_url = link_href
+        elif link_href.startswith("/"):
+            detail_url = f"https://www.target.com{link_href}"
+
+    # Fallback for in-store orders: their order cards may not have a
+    # clickable link, but the detail page URL is constructable from the
+    # dash-format order ID (e.g. "6028-2218-0085-0622").
+    if not detail_url and order_id and "-" in order_id:
+        detail_url = f"https://www.target.com/orders/stores/{order_id}"
+
     return TargetOrder(
         order_id=order_id,
         order_date=order_date,
@@ -1070,6 +2294,7 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
         items=items,
         fulfillment_type=fulfillment_type,
         payment_method=payment_method,
+        detail_url=detail_url,
     )
 
 
