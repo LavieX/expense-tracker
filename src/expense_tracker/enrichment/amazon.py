@@ -899,11 +899,27 @@ class AmazonEnrichmentProvider:
             # (``.yohtmlc-product-title``) first; fall back
             # to a product-page link (``/dp/``) to avoid picking up
             # unrelated ``a-link-normal`` elements (e.g. "Buy it again").
+            #
+            # IMPORTANT: Do NOT use a bare ``.a-link-normal[href*='/dp/']``
+            # selector here.  Each ``.item-box`` contains TWO such links:
+            # one wrapping the product *image* (``tabindex="-1"``, yields
+            # empty ``inner_text()``) and one inside
+            # ``.yohtmlc-product-title`` with the actual name.  Because
+            # ``query_selector`` returns the first DOM-order match across
+            # ALL comma-separated selectors (no priority), the image link
+            # would be returned first, its empty text would cause the item
+            # to be skipped, and the fallback code would then pick up
+            # "View invoice" as the product name.
+            #
+            # Instead we target the title container or the ``/dp/`` link
+            # that lives specifically inside the title div, excluding the
+            # image-wrapper link via ``:not([tabindex='-1'])``.
             name_el = item_el.query_selector(
                 ".yohtmlc-product-title, "
                 "[data-component='itemTitle'], "
                 ".yohtmlc-item a, "
-                ".a-link-normal[href*='/dp/'], "
+                ".yohtmlc-product-title .a-link-normal[href*='/dp/'], "
+                ".a-link-normal[href*='/dp/']:not([tabindex='-1']), "
                 "[data-testid='item-title']"
             )
             if name_el is None:
@@ -931,13 +947,27 @@ class AmazonEnrichmentProvider:
 
         # If no items found or no prices, create a single item.
         if not items:
-            # Try to get at least the product name.
+            # Try to get at least the product name from the card.
+            #
+            # IMPORTANT: Do NOT include ``.a-link-normal[href*='/gp/']``
+            # here.  The order header contains "View invoice" and
+            # "View order details" links matching that pattern, and they
+            # appear BEFORE the ``.yohtmlc-product-title`` elements in
+            # DOM order.  Since ``query_selector`` returns the first
+            # DOM-order match across all comma-separated selectors, it
+            # would pick up "View invoice" as the product name.
+            #
+            # Likewise, bare ``.a-link-normal[href*='/dp/']`` must be
+            # avoided because the product *image* wrapper link (with
+            # ``tabindex="-1"`` and empty ``inner_text()``) precedes
+            # the title link in each item-box.
             product_el = card.query_selector(
+                ".yohtmlc-product-title, "
                 "[data-component='itemTitle'], "
                 ".yohtmlc-item a, "
-                ".yohtmlc-product-title, "
-                ".a-link-normal[href*='/dp/'], "
-                ".a-link-normal[href*='/gp/']"
+                ".yohtmlc-product-title .a-link-normal[href*='/dp/'], "
+                ".a-link-normal[href*='/dp/']:not([tabindex='-1']), "
+                "[data-testid='item-title']"
             )
             product_name = "Amazon order"
             if product_el:

@@ -45,38 +45,60 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Selector that matches *any* order card wrapper on the page.
+#
+# Target's 2025-2026 order history page nests order cards inside a
+# ``styledPageLayout`` wrapper.  Each order is wrapped in a div whose ID is
+# the numeric order ID, with a child ``<div class="styles_orderCard__…">``
+# (CSS-modules hash suffix changes per build).
+#
+# The most reliable live selector is the ``data-test="order-details-link"``
+# attribute on the *inner* wrapper -- every order card has exactly one, and
+# it does not appear elsewhere on the page.  We use its *parent* div (the
+# one with the CSS-module ``orderCard`` class) as the card boundary so that
+# ``inner_text()`` captures date, total, order ID, and fulfillment info.
 ORDER_CARD_SELECTOR = ", ".join([
-    # 2026 live selectors (from debug HTML dump)
+    # 2025-2026 live selector -- parent of data-test="order-details-link"
+    # Matches the CSS-modules class ``styles_orderCard__<hash>``.
     'div[class*="orderCard"]',
     'div[class*="OrderCard"]',
-    # 2025+ namespaced component selectors
+    # Fallback: the inner wrapper itself (``data-test="order-details-link"``)
+    # is always present.  If the outer class name changes we still find it.
+    '[data-test="order-details-link"]',
+    # Legacy / future-proof selectors
     '[data-test="@web/account/OrderCard"]',
     '[data-test="@web/account/OrderHistoryCard"]',
     '[data-test="@web/orders/OrderCard"]',
-    # Shorter attribute selectors (kebab-case + camelCase)
     '[data-test="order-card"]',
     '[data-test="orderCard"]',
-    # data-testid variants (React Testing Library convention)
     '[data-testid="order-card"]',
     '[data-testid="orderCard"]',
     '[data-testid="order-history-card"]',
-    # Generic structural fallbacks
     '[data-component="OrderCard"]',
     'section[class*="OrderCard"]',
     'div[class*="order-card"]',
-    # Broad semantic fallback -- an <article> or role wrapping each order
     'article[data-test]',
 ])
 
 # Selector that indicates the page has loaded (order cards *or* empty state).
+#
+# The most reliable early-render indicators on Target's 2025-2026 order
+# history page are the Online/In-store tab buttons, which appear before
+# the order cards themselves finish rendering.  We put tabs first because
+# they render immediately; the order-card selectors follow for pages that
+# skip tabs (e.g. accounts with only one tab, or future redesigns).
 PAGE_READY_SELECTOR = ", ".join([
-    # 2026 live selectors (from debug HTML dump)
-    'div[class*="orderCard"]',
-    'div[class*="OrderCard"]',
+    # 2025-2026 live tab selectors (render before order cards)
     '[data-test="tabOnline"]',
     '[data-test="tabInstore"]',
+    # Tab content panel (visible once the SPA mounts the order-history view)
+    '[data-test^="tab-tabContent-tab-"]',
+    # Order card selectors (render after tab content loads)
+    'div[class*="orderCard"]',
+    'div[class*="OrderCard"]',
     '[data-test="order-details-link"]',
-    # New order-card selectors
+    # Page-level layout wrapper (present once orders section renders)
+    'div[class*="styledPageLayout"]',
+    # Legacy / future-proof order-card selectors
     '[data-test="@web/account/OrderCard"]',
     '[data-test="@web/account/OrderHistoryCard"]',
     '[data-test="@web/orders/OrderCard"]',
@@ -108,7 +130,21 @@ PAGE_READY_SELECTOR = ", ".join([
 ])
 
 # Sub-selectors used inside an order card element.
+#
+# Target's 2025-2026 order cards place date, total, and order number in
+# *plain* ``<p>`` elements with utility CSS classes (``h-text-bold``,
+# ``h-text-grayDark``, etc.) -- they have **no** ``data-test`` attributes.
+# CSS sub-selectors are therefore unreliable for these fields.
+#
+# The primary extraction strategy (implemented in ``_parse_order_card``)
+# uses **regex on inner text** rather than CSS selectors.  The selectors
+# below serve as *fallback only* and are ordered from most-specific to
+# least-specific.
+
 ORDER_DATE_SELECTOR = ", ".join([
+    # 2025-2026: date is in the first <p> child with bold styling
+    'p.h-text-bold.h-text-lg',
+    # Legacy data-test selectors
     '[data-test="@web/account/OrderDate"]',
     '[data-test="order-date"]',
     '[data-test="orderDate"]',
@@ -118,10 +154,12 @@ ORDER_DATE_SELECTOR = ", ".join([
     'span[class*="orderDate"]',
     'span[class*="OrderDate"]',
     'div[class*="orderDate"]',
-    # Removed .h-text-sm — too broad, matches fulfillment status text
 ])
 
 ORDER_NUMBER_SELECTOR = ", ".join([
+    # 2025-2026: order number is in a <p> with a bottom padding class
+    'p.h-padding-b-default',
+    # Legacy data-test selectors
     '[data-test="@web/account/OrderNumber"]',
     '[data-test="order-number"]',
     '[data-test="orderNumber"]',
@@ -132,6 +170,10 @@ ORDER_NUMBER_SELECTOR = ", ".join([
 ])
 
 ORDER_TOTAL_SELECTOR = ", ".join([
+    # 2025-2026: total is the second <p> inside the card, between date and order#
+    # It uses h-text-grayDark and h-text-md but NOT h-padding-b-default (that's the order#)
+    # and NOT h-text-bold (that's the date).  No unique selector exists, so regex is primary.
+    # Legacy data-test selectors
     '[data-test="@web/account/OrderTotal"]',
     '[data-test="order-total"]',
     '[data-test="orderTotal"]',
@@ -139,10 +181,13 @@ ORDER_TOTAL_SELECTOR = ", ".join([
     '[data-testid="orderTotal"]',
     'span[class*="orderTotal"]',
     'span[class*="OrderTotal"]',
-    '.h-text-bold',
 ])
 
 FULFILLMENT_TYPE_SELECTOR = ", ".join([
+    # 2025-2026: fulfillment status is inside a heading span
+    'span.h-text-grayDarkest',
+    'h2 span.h-text-grayDarkest',
+    # Legacy data-test selectors
     '[data-test="@web/account/FulfillmentType"]',
     '[data-test="fulfillment-type"]',
     '[data-test="fulfillmentType"]',
@@ -162,7 +207,24 @@ PAYMENT_METHOD_SELECTOR = ", ".join([
     'span[class*="Payment"]',
 ])
 
-ORDER_ITEM_CARD_SELECTOR = ", ".join([
+# Item-level selectors.
+#
+# Target's 2025-2026 order history page does NOT show individual item
+# prices or quantities on the order list view.  Items appear only as
+# thumbnail images inside ``styles_imageBox__<hash>`` divs, with the
+# product name available only in the ``<img alt="...">`` attribute.
+#
+# To get full item details (prices, quantities), the scraper must follow
+# the "View purchase" link to the order detail page.  For the list view,
+# we extract item *names* from image alt text.
+
+ORDER_ITEM_IMAGE_SELECTOR = ", ".join([
+    # 2025-2026: each item thumbnail is in an imageBox div
+    'div[class*="imageBox"]',
+    'div[class*="ImageBox"]',
+    # Inside item-picture-container spans
+    'span[class*="itemPictureContainer"]',
+    # Legacy structured item cards (may return on detail pages)
     '[data-test="@web/account/OrderItemCard"]',
     '[data-test="@web/account/OrderItem"]',
     '[data-test="order-item-card"]',
@@ -173,10 +235,16 @@ ORDER_ITEM_CARD_SELECTOR = ", ".join([
     '[data-testid="order-item"]',
     'div[class*="OrderItem"]',
     'div[class*="orderItem"]',
-    '.h-flex-item',
 ])
 
+# Keep legacy structured-item selectors for detail pages or future changes.
+ORDER_ITEM_CARD_SELECTOR = ORDER_ITEM_IMAGE_SELECTOR
+
 ITEM_NAME_SELECTOR = ", ".join([
+    # 2025-2026: product name is ONLY in img alt attribute on list view.
+    # The img element inside the image box.
+    'img[alt]',
+    # Legacy data-test selectors (may appear on detail pages)
     '[data-test="@web/account/OrderItemName"]',
     '[data-test="order-item-name"]',
     '[data-test="orderItemName"]',
@@ -190,7 +258,6 @@ ITEM_NAME_SELECTOR = ", ".join([
     'a[data-test="product-title"]',
     'span[class*="itemName"]',
     'span[class*="ItemName"]',
-    '.h-text-bold',
 ])
 
 ITEM_PRICE_SELECTOR = ", ".join([
@@ -226,6 +293,7 @@ ITEM_QTY_SELECTOR = ", ".join([
 ])
 
 # Tab selectors for Online / In-store order history tabs.
+# Target's 2025-2026 tabs use ``data-test`` attributes AND ``id`` attributes.
 TAB_ONLINE_SELECTOR = ", ".join([
     '[data-test="tabOnline"]',
     '#tab-Online',
@@ -237,6 +305,17 @@ TAB_INSTORE_SELECTOR = ", ".join([
     '#tab-Instore',
     'button[role="tab"][aria-controls*="Instore"]',
     'button[role="tab"][aria-controls*="In-store"]',
+])
+
+# Tab content panel selectors (used to confirm tab content has loaded).
+TAB_CONTENT_ONLINE_SELECTOR = ", ".join([
+    '[data-test="tab-tabContent-tab-Online"]',
+    '#tabContent-tab-Online',
+])
+
+TAB_CONTENT_INSTORE_SELECTOR = ", ".join([
+    '[data-test="tab-tabContent-tab-Instore"]',
+    '#tabContent-tab-Instore',
 ])
 
 # Regex patterns used for text-based extraction from order card inner text.
@@ -709,6 +788,18 @@ def _scrape_tab(
         page.wait_for_load_state("networkidle", timeout=15000)
     except Exception:
         pass  # networkidle may not fire if nothing loads (empty tab)
+
+    # Wait for the tab content panel to appear.  Target's 2025-2026 tabs
+    # use aria-controls pointing to ``tabContent-tab-Online`` / ``tabContent-tab-Instore``.
+    tab_content_selector = (
+        TAB_CONTENT_INSTORE_SELECTOR if "In-store" in tab_name or "Instore" in tab_name
+        else TAB_CONTENT_ONLINE_SELECTOR
+    )
+    try:
+        page.wait_for_selector(tab_content_selector, timeout=10000)
+    except Exception:
+        logger.debug("Tab content panel not found for %r, proceeding anyway", tab_name)
+
     time.sleep(2)  # extra settle time for React re-render
 
     return _scrape_current_page_orders(
@@ -737,6 +828,15 @@ def _scrape_current_page_orders(
         Tuple of (orders_list, total_card_count).
     """
     orders: list[TargetOrder] = []
+
+    # Give the SPA a moment to render order cards.  On Target's 2025-2026
+    # page the order cards are inside a ``styledPageLayout`` wrapper that
+    # appears after the "Buy Again" recommendations section loads.
+    try:
+        page.wait_for_selector(ORDER_CARD_SELECTOR, timeout=10000)
+    except Exception:
+        pass  # No order cards -- could be empty tab or loading delay
+
     order_cards = page.query_selector_all(ORDER_CARD_SELECTOR)
 
     if not order_cards:
@@ -805,9 +905,16 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
 
     Target's 2025-2026 order cards place the date, total, and order number
     in plain ``<p>`` elements with utility CSS classes -- no ``data-test``
-    attributes.  CSS-only selectors are therefore unreliable.  We extract the
-    card's full visible text and use regex to pull out the date, total, and
-    order ID, then fall back to CSS sub-selectors.
+    attributes.  CSS-only selectors are therefore unreliable.
+
+    Extraction strategies (in priority order):
+
+    1. **Regex on inner text** -- the card's visible text contains the date,
+       total, and order ID in a predictable format.
+    2. **"View purchase" link** -- the ``<a>`` element has an ``aria-label``
+       like ``"View purchase made on Aug 31, 2024 for $30.52"`` and an
+       ``href`` like ``"/orders/102001197478538"`` which encodes the order ID.
+    3. **CSS sub-selectors** -- fallback for future DOM changes.
 
     Returns None if the order date is outside the target month range.
 
@@ -822,6 +929,15 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
     """
     card_text = card.inner_text()
 
+    # Grab the "View purchase" link for supplementary data extraction.
+    # Its aria-label encodes date + total; its href encodes the order ID.
+    view_link = card.query_selector('a[href*="/orders/"]')
+    aria_label = ""
+    link_href = ""
+    if view_link:
+        aria_label = view_link.get_attribute("aria-label") or ""
+        link_href = view_link.get_attribute("href") or ""
+
     # --- Extract order date ---
     # Strategy 1: regex on inner text (primary -- works with 2025-2026 DOM)
     order_date: date | None = None
@@ -829,7 +945,13 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
     if date_match:
         order_date = _parse_target_date(date_match.group(0))
 
-    # Strategy 2: CSS selector fallback (if regex missed)
+    # Strategy 2: regex on aria-label (e.g. "View purchase made on Aug 31, 2024 for $30.52")
+    if order_date is None and aria_label:
+        aria_date_match = _DATE_RE.search(aria_label)
+        if aria_date_match:
+            order_date = _parse_target_date(aria_date_match.group(0))
+
+    # Strategy 3: CSS selector fallback (if regex missed)
     if order_date is None:
         date_el = card.query_selector(ORDER_DATE_SELECTOR)
         if date_el:
@@ -851,10 +973,19 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
 
     # --- Extract order ID ---
     order_id = ""
+
+    # Strategy 1: regex on inner text (matches #NNNNNNNNN)
     id_match = _ORDER_ID_RE.search(card_text)
     if id_match:
         order_id = id_match.group(1)
 
+    # Strategy 2: extract from href (e.g. "/orders/102001197478538")
+    if not order_id and link_href:
+        href_id_match = re.search(r"/orders/(\d+)", link_href)
+        if href_id_match:
+            order_id = href_id_match.group(1)
+
+    # Strategy 3: CSS selector fallback
     if not order_id:
         order_id_el = card.query_selector(ORDER_NUMBER_SELECTOR)
         if order_id_el:
@@ -866,10 +997,19 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
 
     # --- Extract order total ---
     order_total = Decimal("0")
+
+    # Strategy 1: regex on inner text
     total_match = _ORDER_TOTAL_RE.search(card_text)
     if total_match:
         order_total = _parse_price(total_match.group(0))
 
+    # Strategy 2: regex on aria-label (e.g. "...for $30.52")
+    if order_total == 0 and aria_label:
+        aria_total_match = _ORDER_TOTAL_RE.search(aria_label)
+        if aria_total_match:
+            order_total = _parse_price(aria_total_match.group(0))
+
+    # Strategy 3: CSS selector fallback
     if order_total == 0:
         total_el = card.query_selector(ORDER_TOTAL_SELECTOR)
         if total_el:
@@ -890,7 +1030,7 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
     if payment_el:
         payment_method = payment_el.inner_text().strip().lower()
 
-    # Try to get line items from order detail page
+    # Try to get line items from the order card
     items = _scrape_order_items(page, card)
 
     return TargetOrder(
@@ -904,21 +1044,32 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
 
 
 def _scrape_order_items(page, card) -> list[TargetLineItem]:
-    """Scrape individual line items from an order card or its detail page.
+    """Scrape individual line items from an order card.
+
+    Target's 2025-2026 order list page shows items as thumbnail images
+    inside ``imageBox`` divs.  The product name is available **only** as
+    the ``<img alt="...">`` attribute; individual prices and quantities
+    are not displayed on the list view.
+
+    When structured item cards with price/qty sub-elements are present
+    (future redesign or order detail page), those are preferred.
 
     Args:
         page: Playwright page object.
         card: The order card element.
 
     Returns:
-        List of TargetLineItem objects.
+        List of TargetLineItem objects.  On the list view, each item will
+        have ``price=0`` and ``quantity=1`` since those details are only
+        available on the order detail page.
     """
     items: list[TargetLineItem] = []
 
-    # Try to find items directly on the card
+    # Strategy 1: Try structured item cards with price/qty (legacy or detail page)
     item_els = card.query_selector_all(ORDER_ITEM_CARD_SELECTOR)
 
     for item_el in item_els:
+        # Look for a structured name element first
         name_el = item_el.query_selector(ITEM_NAME_SELECTOR)
         price_el = item_el.query_selector(ITEM_PRICE_SELECTOR)
         qty_el = item_el.query_selector(ITEM_QTY_SELECTOR)
@@ -926,8 +1077,21 @@ def _scrape_order_items(page, card) -> list[TargetLineItem]:
         if not name_el:
             continue
 
-        name = name_el.inner_text().strip()
-        price = _parse_price(price_el.inner_text().strip()) if price_el else Decimal("0")
+        # Determine name: prefer inner_text from a structured element,
+        # but if the matched element is an <img>, use its alt attribute.
+        tag_name = name_el.evaluate("el => el.tagName.toLowerCase()")
+        if tag_name == "img":
+            name = (name_el.get_attribute("alt") or "").strip()
+        else:
+            name = name_el.inner_text().strip()
+
+        if not name:
+            continue
+
+        price = Decimal("0")
+        if price_el:
+            price = _parse_price(price_el.inner_text().strip())
+
         quantity = 1
         if qty_el:
             qty_text = qty_el.inner_text().strip()
@@ -937,6 +1101,19 @@ def _scrape_order_items(page, card) -> list[TargetLineItem]:
                 quantity = 1
 
         items.append(TargetLineItem(name=name, price=price, quantity=quantity))
+
+    # Strategy 2: If no structured items were found, try extracting names
+    # from image alt text within the order-images-component.
+    if not items:
+        images_component = card.query_selector('[data-test="order-images-component"]')
+        if images_component:
+            img_els = images_component.query_selector_all("img[alt]")
+            for img_el in img_els:
+                alt = (img_el.get_attribute("alt") or "").strip()
+                if alt:
+                    items.append(TargetLineItem(
+                        name=alt, price=Decimal("0"), quantity=1,
+                    ))
 
     return items
 

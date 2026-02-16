@@ -40,6 +40,5 @@ input_dir = "input/elevations"
 [[enrichment.amazon]]
 label = "primary"
 
-# Uncomment when wife's account is accessible for 2FA
-# [[enrichment.amazon]]
-# label = "secondary"
+[[enrichment.amazon]]
+label = "secondary"
