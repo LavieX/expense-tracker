@@ -34,6 +34,7 @@ CSV_COLUMNS = [
     "is_return",
     "is_recurring",
     "split_from",
+    "source",
 ]
 
 
@@ -91,6 +92,7 @@ def export(
                     "is_return": str(txn.is_return),
                     "is_recurring": str(txn.is_recurring),
                     "split_from": txn.split_from,
+                    "source": txn.source,
                 }
             )
 

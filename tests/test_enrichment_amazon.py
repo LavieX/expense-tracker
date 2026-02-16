@@ -924,13 +924,18 @@ class TestEnrichmentPipelineIntegration:
         assert result.warnings == []
 
         # Verify split details.
-        assert result.transactions[0].merchant == "AMAZON - Widget"
+        # Retailer prefix "AMAZON - " is stripped during enrichment so
+        # split items get categorized by product name, not the generic
+        # AMAZON rule.
+        assert result.transactions[0].merchant == "Widget"
         assert result.transactions[0].amount == Decimal("-30.00")
         assert result.transactions[0].split_from == "txn_amazon_001"
+        assert result.transactions[0].category == "Uncategorized"
 
-        assert result.transactions[1].merchant == "AMAZON - Book"
+        assert result.transactions[1].merchant == "Book"
         assert result.transactions[1].amount == Decimal("-15.00")
         assert result.transactions[1].split_from == "txn_amazon_001"
+        assert result.transactions[1].category == "Uncategorized"
 
 
 # ===========================================================================

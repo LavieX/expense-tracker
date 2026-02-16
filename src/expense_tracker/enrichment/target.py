@@ -61,9 +61,10 @@ ORDER_CARD_SELECTOR = ", ".join([
     # Matches the CSS-modules class ``styles_orderCard__<hash>``.
     'div[class*="orderCard"]',
     'div[class*="OrderCard"]',
-    # Fallback: the inner wrapper itself (``data-test="order-details-link"``)
-    # is always present.  If the outer class name changes we still find it.
-    '[data-test="order-details-link"]',
+    # NOTE: Do NOT include ``[data-test="order-details-link"]`` or
+    # ``[data-test="store-order-details-link"]`` here. Those are *children*
+    # of the ``orderCard`` div, so including them causes ``query_selector_all``
+    # to return both parent and child for the same order, double-counting cards.
     # Legacy / future-proof selectors
     '[data-test="@web/account/OrderCard"]',
     '[data-test="@web/account/OrderHistoryCard"]',
@@ -96,6 +97,7 @@ PAGE_READY_SELECTOR = ", ".join([
     'div[class*="orderCard"]',
     'div[class*="OrderCard"]',
     '[data-test="order-details-link"]',
+    '[data-test="store-order-details-link"]',
     # Page-level layout wrapper (present once orders section renders)
     'div[class*="styledPageLayout"]',
     # Legacy / future-proof order-card selectors
@@ -157,9 +159,10 @@ ORDER_DATE_SELECTOR = ", ".join([
 ])
 
 ORDER_NUMBER_SELECTOR = ", ".join([
-    # 2025-2026: order number is in a <p> with a bottom padding class
-    'p.h-padding-b-default',
-    # Legacy data-test selectors
+    # Legacy data-test selectors (the 2025-2026 In-store cards do not have a
+    # separate order-number element; Online cards show it as a ``<p>`` that
+    # also carries ``h-padding-b-default`` -- but that class is shared by the
+    # price paragraph on In-store cards, so we must NOT use it as a selector).
     '[data-test="@web/account/OrderNumber"]',
     '[data-test="order-number"]',
     '[data-test="orderNumber"]',
@@ -219,11 +222,12 @@ PAYMENT_METHOD_SELECTOR = ", ".join([
 # we extract item *names* from image alt text.
 
 ORDER_ITEM_IMAGE_SELECTOR = ", ".join([
-    # 2025-2026: each item thumbnail is in an imageBox div
+    # 2025-2026: each item thumbnail is in an imageBox div.
+    # NOTE: Do NOT include ``span[class*="itemPictureContainer"]`` here --
+    # it is a *child* of the imageBox div, so including it would return two
+    # elements per item and cause duplicates.
     'div[class*="imageBox"]',
     'div[class*="ImageBox"]',
-    # Inside item-picture-container spans
-    'span[class*="itemPictureContainer"]',
     # Legacy structured item cards (may return on detail pages)
     '[data-test="@web/account/OrderItemCard"]',
     '[data-test="@web/account/OrderItem"]',
@@ -843,6 +847,9 @@ def _scrape_current_page_orders(
         logger.info("No order cards found on the current page/tab.")
         return orders, 0
 
+    parse_failures = 0
+    date_filtered = 0
+
     for card in order_cards:
         try:
             order = _parse_order_card(page, card, month_start, month_end)
@@ -854,16 +861,33 @@ def _scrape_current_page_orders(
                     continue
                 seen_order_ids.add(order.order_id)
                 orders.append(order)
+            else:
+                # _parse_order_card returns None for both date-filtered
+                # and true parse failures.  Peek at card text to tell apart.
+                card_text = card.inner_text()
+                if _DATE_RE.search(card_text):
+                    # Has a valid date -- likely just outside target month
+                    date_filtered += 1
+                else:
+                    parse_failures += 1
         except Exception as exc:
             logger.warning("Failed to parse order card: %s", exc)
+            parse_failures += 1
             continue
 
-    # If we found cards but parsed 0 orders, dump HTML for debugging
-    if order_cards and not orders:
+    if date_filtered:
+        logger.debug(
+            "Skipped %d order cards outside target month (%s to %s).",
+            date_filtered, month_start, month_end,
+        )
+
+    # Only dump debug HTML when cards genuinely failed to parse (not just
+    # filtered out by date range).
+    if parse_failures > 0:
         logger.warning(
-            "Found %d order cards but parsed 0 orders. "
+            "Found %d order cards but %d failed to parse. "
             "Dumping page HTML for selector debugging.",
-            len(order_cards),
+            len(order_cards), parse_failures,
         )
         _dump_debug_html(page, auth_dir)
 
@@ -974,14 +998,16 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
     # --- Extract order ID ---
     order_id = ""
 
-    # Strategy 1: regex on inner text (matches #NNNNNNNNN)
+    # Strategy 1: regex on inner text (matches #NNNNNNNNN -- Online orders)
     id_match = _ORDER_ID_RE.search(card_text)
     if id_match:
         order_id = id_match.group(1)
 
-    # Strategy 2: extract from href (e.g. "/orders/102001197478538")
+    # Strategy 2: extract from href
+    # Online orders:  /orders/102001197478538
+    # In-store orders: /orders/stores/5350-2218-0175-9554
     if not order_id and link_href:
-        href_id_match = re.search(r"/orders/(\d+)", link_href)
+        href_id_match = re.search(r"/orders/(?:stores/)?([\d-]+)", link_href)
         if href_id_match:
             order_id = href_id_match.group(1)
 
@@ -990,7 +1016,11 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
         order_id_el = card.query_selector(ORDER_NUMBER_SELECTOR)
         if order_id_el:
             raw = order_id_el.inner_text().strip()
-            order_id = raw.lstrip("#")
+            # Only use this if it looks like an order number (digits,
+            # possibly with # prefix or dashes), not a price.
+            cleaned = raw.lstrip("#")
+            if cleaned and not cleaned.startswith("$"):
+                order_id = cleaned
 
     if not order_id:
         order_id = f"unknown-{order_date.isoformat()}"
@@ -1051,6 +1081,13 @@ def _scrape_order_items(page, card) -> list[TargetLineItem]:
     the ``<img alt="...">`` attribute; individual prices and quantities
     are not displayed on the list view.
 
+    Quantities are encoded in two places:
+
+    * The ``<img alt>`` text may contain a ``" - quantity: N"`` suffix
+      (e.g. ``"Oatly Oatmilk Full Fat - 64 fl oz - quantity: 2"``).
+    * The ``itemPictureContainer`` span uses a CSS custom property
+      ``--quantity-content: "N"`` and a ``hasQuantity`` CSS class.
+
     When structured item cards with price/qty sub-elements are present
     (future redesign or order detail page), those are preferred.
 
@@ -1060,8 +1097,9 @@ def _scrape_order_items(page, card) -> list[TargetLineItem]:
 
     Returns:
         List of TargetLineItem objects.  On the list view, each item will
-        have ``price=0`` and ``quantity=1`` since those details are only
-        available on the order detail page.
+        have ``price=0`` and ``quantity=1`` (unless quantity is encoded in
+        the alt text) since price details are only available on the order
+        detail page.
     """
     items: list[TargetLineItem] = []
 
@@ -1100,22 +1138,65 @@ def _scrape_order_items(page, card) -> list[TargetLineItem]:
             except ValueError:
                 quantity = 1
 
+        # Parse quantity from alt text suffix like " - quantity: 2"
+        name, alt_qty = _parse_quantity_from_name(name)
+        if alt_qty > 1 and quantity == 1:
+            quantity = alt_qty
+
         items.append(TargetLineItem(name=name, price=price, quantity=quantity))
 
     # Strategy 2: If no structured items were found, try extracting names
-    # from image alt text within the order-images-component.
+    # from image alt text.  In-store cards do NOT have
+    # ``data-test="order-images-component"``; their images live in a
+    # ``packageImagesContainer`` div.  We search for both, then fall back
+    # to any ``img[alt]`` inside the card.
     if not items:
-        images_component = card.query_selector('[data-test="order-images-component"]')
-        if images_component:
-            img_els = images_component.query_selector_all("img[alt]")
-            for img_el in img_els:
-                alt = (img_el.get_attribute("alt") or "").strip()
-                if alt:
-                    items.append(TargetLineItem(
-                        name=alt, price=Decimal("0"), quantity=1,
-                    ))
+        # Try order-images-component first (Online cards)
+        images_container = card.query_selector('[data-test="order-images-component"]')
+        # Fall back to packageImagesContainer (In-store cards)
+        if not images_container:
+            images_container = card.query_selector('div[class*="packageImagesContainer"]')
+        # Last resort: search the entire card
+        if not images_container:
+            images_container = card
+
+        img_els = images_container.query_selector_all("img[alt]")
+        for img_el in img_els:
+            alt = (img_el.get_attribute("alt") or "").strip()
+            if alt:
+                name, quantity = _parse_quantity_from_name(alt)
+                items.append(TargetLineItem(
+                    name=name, price=Decimal("0"), quantity=quantity,
+                ))
 
     return items
+
+
+# Regex to extract quantity suffix from item alt text.
+# Matches patterns like " - quantity: 2" at the end of the string.
+_QUANTITY_SUFFIX_RE = re.compile(r"\s*-\s*quantity:\s*(\d+)\s*$", re.IGNORECASE)
+
+
+def _parse_quantity_from_name(name: str) -> tuple[str, int]:
+    """Strip a ``" - quantity: N"`` suffix from an item name.
+
+    Target's In-store order thumbnails encode the purchase quantity in the
+    ``<img alt>`` attribute as a suffix (e.g. ``"Fresh Dekopon Mandarin
+    Orange - each - quantity: 4"``).
+
+    Args:
+        name: Item name, possibly with a quantity suffix.
+
+    Returns:
+        Tuple of (cleaned_name, quantity).  If no suffix is found,
+        quantity defaults to 1.
+    """
+    m = _QUANTITY_SUFFIX_RE.search(name)
+    if m:
+        qty = int(m.group(1))
+        cleaned = name[:m.start()].strip()
+        return cleaned, max(qty, 1)
+    return name, 1
 
 
 def _extract_fulfillment_type(text: str) -> str:

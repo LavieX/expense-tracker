@@ -103,6 +103,7 @@ def push_to_sheets(
         "is_return",
         "is_recurring",
         "split_from",
+        "source",
     ]
 
     # Build rows: header + data rows
@@ -123,6 +124,7 @@ def push_to_sheets(
             "TRUE" if txn.is_return else "FALSE",  # Boolean as TRUE/FALSE string
             "TRUE" if txn.is_recurring else "FALSE",
             txn.split_from,
+            txn.source,
         ])
 
     # Clear existing content and write all data in one batch update

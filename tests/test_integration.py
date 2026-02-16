@@ -841,10 +841,11 @@ class TestEnrichmentCache:
         assert f"{txn_id}-1" in split_ids
         assert f"{txn_id}-2" in split_ids
 
-        # Verify split merchants
+        # Verify split merchants -- retailer prefix "TARGET - " is stripped
+        # so splits get categorized by product name.
         split_merchants = {r["merchant"] for r in splits}
-        assert "TARGET - Diapers" in split_merchants
-        assert "TARGET - Snacks" in split_merchants
+        assert "Diapers" in split_merchants
+        assert "Snacks" in split_merchants
 
         # Verify split amounts sum to original
         split_total = sum(Decimal(r["amount"]) for r in splits)

@@ -75,6 +75,9 @@ class Transaction:
             (subscription, bill, etc.).
         split_from: Parent transaction_id if this is a split line item,
             or empty string if it is not a split.
+        source: Retailer tag indicating the original purchase source,
+            e.g. "Amazon", "Target". Empty string for non-enriched
+            transactions that don't match a known retailer pattern.
         source_file: Path to the source CSV file (for debugging; not
             included in output).
     """
@@ -92,6 +95,7 @@ class Transaction:
     is_return: bool = False
     is_recurring: bool = False
     split_from: str = ""
+    source: str = ""
     source_file: str = ""
 
 

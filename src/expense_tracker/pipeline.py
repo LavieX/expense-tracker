@@ -113,6 +113,10 @@ def run(
     all_errors.extend(enrich_result.errors)
     transactions = enrich_result.transactions
 
+    # -- Stage 4b: Tag sources ------------------------------------------------
+    source_result = _tag_sources(transactions)
+    transactions = source_result.transactions
+
     # -- Stage 5: Categorize --------------------------------------------------
     cat_result = _categorize(transactions, rules)
     all_warnings.extend(cat_result.warnings)
@@ -356,6 +360,81 @@ def _detect_transfers(
     return StageResult(transactions=transactions)
 
 
+_RETAILER_PREFIXES = [
+    "AMAZON - ",
+    "TARGET - ",
+]
+
+
+def _strip_retailer_prefix(merchant: str) -> str:
+    """Strip known retailer prefixes from enriched merchant names.
+
+    Enrichment splits produce merchant names like "AMAZON - Pyrex Food
+    Storage..." which would match the generic "AMAZON" rule during
+    categorization.  Stripping the prefix lets the product description
+    drive categorization instead.
+
+    If the remaining text after prefix removal is empty or too short
+    (< 3 chars), the original merchant string is returned unchanged so
+    we don't lose useful information.
+    """
+    for prefix in _RETAILER_PREFIXES:
+        if merchant.upper().startswith(prefix.upper()):
+            remainder = merchant[len(prefix):].strip()
+            if len(remainder) >= 3:
+                return remainder
+    return merchant
+
+
+def _detect_retailer_source(retailer_hint: str, merchant: str) -> str:
+    """Determine the retailer source tag from enrichment data or merchant name.
+
+    Checks the enrichment cache ``retailer`` field first, then falls back to
+    pattern-matching the original merchant name.
+
+    Returns:
+        A clean retailer tag like ``"Amazon"`` or ``"Target"``, or empty string
+        if the retailer cannot be determined.
+    """
+    hint_upper = retailer_hint.upper()
+    if "AMAZON" in hint_upper or "AMZN" in hint_upper or "AMZ" in hint_upper:
+        return "Amazon"
+    if "TARGET" in hint_upper:
+        return "Target"
+
+    merchant_upper = merchant.upper()
+    if "AMAZON" in merchant_upper or "AMZN" in merchant_upper or "AMZ" in merchant_upper:
+        return "Amazon"
+    if "TARGET" in merchant_upper:
+        return "Target"
+
+    return ""
+
+
+def _tag_sources(transactions: list[Transaction]) -> StageResult:
+    """Tag transactions with a retailer ``source`` based on merchant name.
+
+    For transactions that were not enriched (and thus have no ``source`` set),
+    pattern-match the merchant/description to detect known retailers:
+
+    - Any merchant containing "AMAZON", "AMZN", or "AMZ" -> source = "Amazon"
+    - Any merchant containing "TARGET" -> source = "Target"
+
+    Transactions that already have a ``source`` (set by enrichment) are left
+    unchanged.
+    """
+    for txn in transactions:
+        if txn.source:
+            continue  # Already tagged by enrichment
+        merchant_upper = txn.merchant.upper()
+        if "AMAZON" in merchant_upper or "AMZN" in merchant_upper or "AMZ" in merchant_upper:
+            txn.source = "Amazon"
+        elif "TARGET" in merchant_upper:
+            txn.source = "Target"
+
+    return StageResult(transactions=transactions)
+
+
 def _enrich(
     transactions: list[Transaction],
     root: Path,
@@ -393,26 +472,38 @@ def _enrich(
             result.append(txn)
             continue
 
+        # Determine the retailer source from the enrichment data or
+        # the parent transaction's merchant name.
+        enrichment_source = _detect_retailer_source(
+            data.get("retailer", ""), txn.merchant
+        )
+
         # Build split transactions
         splits: list[Transaction] = []
         split_total = Decimal("0")
         for i, item in enumerate(items, start=1):
             item_amount = Decimal(str(item.get("amount", "0")))
             split_total += item_amount
+            # Strip retailer prefix (e.g. "AMAZON - ") from enriched
+            # merchant names so splits get categorized by their product
+            # description rather than matching the generic retailer rule.
+            enriched_merchant = item.get("merchant", txn.merchant)
+            enriched_merchant = _strip_retailer_prefix(enriched_merchant)
             split_txn = Transaction(
                 transaction_id=f"{txn.transaction_id}-{i}",
                 date=txn.date,
-                merchant=item.get("merchant", txn.merchant),
+                merchant=enriched_merchant,
                 description=item.get("description", txn.description),
                 amount=item_amount,
                 institution=txn.institution,
                 account=txn.account,
-                category=txn.category,
-                subcategory=txn.subcategory,
+                category="Uncategorized",
+                subcategory="",
                 is_transfer=txn.is_transfer,
                 is_return=item_amount > 0,
                 is_recurring=txn.is_recurring,
                 split_from=txn.transaction_id,
+                source=enrichment_source,
                 source_file=txn.source_file,
             )
             splits.append(split_txn)

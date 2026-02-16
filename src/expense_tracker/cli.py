@@ -476,6 +476,7 @@ def _read_csv_transactions(csv_path: Path) -> list:
                 is_return=row["is_return"].lower() == "true",
                 is_recurring=row.get("is_recurring", "false").lower() == "true",
                 split_from=row["split_from"],
+                source=row.get("source", ""),
             )
             transactions.append(txn)
     return transactions

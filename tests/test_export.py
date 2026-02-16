@@ -94,6 +94,7 @@ class TestExport:
         expected = [
             "transaction_id",
             "date",
+            "month",
             "merchant",
             "description",
             "amount",
@@ -102,7 +103,9 @@ class TestExport:
             "category",
             "subcategory",
             "is_return",
+            "is_recurring",
             "split_from",
+            "source",
         ]
         assert expected == CSV_COLUMNS
 
