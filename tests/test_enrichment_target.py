@@ -29,8 +29,11 @@ from expense_tracker.enrichment.target import (
     REDCARD_DISCOUNT_FACTOR,
     TargetLineItem,
     TargetOrder,
+    _INSTORE_ORDER_ID_RE,
     _parse_price,
+    _parse_quantity_from_name,
     _parse_target_date,
+    _resolve_card_self_or_parent_link,
     match_orders_to_transactions,
     read_enrichment_cache,
     write_enrichment_cache,
@@ -952,3 +955,279 @@ class TestCacheIntegrationWithPipeline:
         # Sum of splits should equal original amount (within tolerance)
         split_sum = sum(t.amount for t in result.transactions)
         assert abs(split_sum - txn.amount) <= Decimal("0.01")
+
+
+# ===========================================================================
+# In-store order ID regex tests
+# ===========================================================================
+
+
+class TestInstoreOrderIdRegex:
+    """Tests for _INSTORE_ORDER_ID_RE (dash-separated in-store order IDs)."""
+
+    def test_matches_standard_instore_id(self):
+        """Matches a standard 4-group dash-separated in-store order ID."""
+        text = "Order 6028-2218-0085-0622"
+        m = _INSTORE_ORDER_ID_RE.search(text)
+        assert m is not None
+        assert m.group(1) == "6028-2218-0085-0622"
+
+    def test_matches_different_digits(self):
+        """Matches another valid in-store order ID."""
+        text = "5350-2218-0175-9554"
+        m = _INSTORE_ORDER_ID_RE.search(text)
+        assert m is not None
+        assert m.group(1) == "5350-2218-0175-9554"
+
+    def test_fullmatch(self):
+        """fullmatch works for a standalone in-store order ID."""
+        assert _INSTORE_ORDER_ID_RE.fullmatch("6028-2218-0085-0622") is not None
+
+    def test_does_not_match_online_order_id(self):
+        """Does not match a numeric-only online order ID (#102001197478538)."""
+        text = "#102001197478538"
+        m = _INSTORE_ORDER_ID_RE.search(text)
+        assert m is None
+
+    def test_does_not_match_partial(self):
+        """Does not match a partial dash-separated ID (fewer than 4 groups)."""
+        text = "6028-2218-0085"
+        m = _INSTORE_ORDER_ID_RE.fullmatch(text)
+        assert m is None
+
+    def test_extracted_from_card_text(self):
+        """Extracts in-store order ID from realistic card inner text."""
+        card_text = (
+            "January 15, 2026\n"
+            "$42.50\n"
+            "6028-2218-0085-0622\n"
+            "Picked up\n"
+            "Target Minneapolis"
+        )
+        m = _INSTORE_ORDER_ID_RE.search(card_text)
+        assert m is not None
+        assert m.group(1) == "6028-2218-0085-0622"
+
+    def test_fullmatch_rejects_unknown_id(self):
+        """fullmatch rejects a synthetic 'unknown-YYYY-MM-DD' order ID."""
+        assert _INSTORE_ORDER_ID_RE.fullmatch("unknown-2026-01-15") is None
+
+
+# ===========================================================================
+# In-store detail URL construction tests
+# ===========================================================================
+
+
+class TestInstoreDetailUrl:
+    """Tests for in-store detail URL construction in _parse_order_card.
+
+    The code builds detail_url from link_href when a view_link is found,
+    and falls back to constructing it from the in-store order ID when no
+    link is found.  These tests verify both paths using the TargetOrder
+    dataclass directly.
+    """
+
+    def test_detail_url_from_relative_href(self):
+        """detail_url is built from a relative in-store href."""
+        # Simulates what _parse_order_card does when link_href is set.
+        link_href = "/orders/stores/6028-2218-0085-0622"
+        if link_href.startswith("/"):
+            detail_url = f"https://www.target.com{link_href}"
+        else:
+            detail_url = link_href
+        assert detail_url == "https://www.target.com/orders/stores/6028-2218-0085-0622"
+
+    def test_detail_url_from_absolute_href(self):
+        """detail_url is passed through when already absolute."""
+        link_href = "https://www.target.com/orders/stores/6028-2218-0085-0622"
+        if link_href.startswith("http"):
+            detail_url = link_href
+        elif link_href.startswith("/"):
+            detail_url = f"https://www.target.com{link_href}"
+        else:
+            detail_url = ""
+        assert detail_url == "https://www.target.com/orders/stores/6028-2218-0085-0622"
+
+    def test_detail_url_fallback_from_instore_order_id(self):
+        """detail_url is constructed from in-store order ID when no link_href."""
+        order_id = "6028-2218-0085-0622"
+        detail_url = ""
+        # This mirrors the fallback logic in _parse_order_card.
+        if not detail_url and order_id and _INSTORE_ORDER_ID_RE.fullmatch(order_id):
+            detail_url = f"https://www.target.com/orders/stores/{order_id}"
+        assert detail_url == "https://www.target.com/orders/stores/6028-2218-0085-0622"
+
+    def test_no_fallback_for_unknown_order_id(self):
+        """detail_url fallback is NOT used for synthetic 'unknown-...' IDs."""
+        order_id = "unknown-2026-01-15"
+        detail_url = ""
+        if not detail_url and order_id and _INSTORE_ORDER_ID_RE.fullmatch(order_id):
+            detail_url = f"https://www.target.com/orders/stores/{order_id}"
+        assert detail_url == ""
+
+    def test_no_fallback_for_online_order_id(self):
+        """detail_url fallback is NOT used for numeric online order IDs."""
+        order_id = "102001197478538"
+        detail_url = ""
+        if not detail_url and order_id and _INSTORE_ORDER_ID_RE.fullmatch(order_id):
+            detail_url = f"https://www.target.com/orders/stores/{order_id}"
+        assert detail_url == ""
+
+    def test_order_with_instore_detail_url_is_eligible_for_price_scraping(self):
+        """An in-store order with detail_url and $0-price items is eligible
+        for detail page price scraping."""
+        order = TargetOrder(
+            order_id="6028-2218-0085-0622",
+            order_date=date(2026, 1, 15),
+            order_total=Decimal("42.50"),
+            items=[
+                TargetLineItem(name="Oatly Oatmilk", price=Decimal("0"), quantity=1),
+                TargetLineItem(name="Bananas", price=Decimal("0"), quantity=1),
+            ],
+            detail_url="https://www.target.com/orders/stores/6028-2218-0085-0622",
+        )
+        # The condition in _scrape_current_page_orders that triggers detail
+        # page navigation:
+        needs_prices = (
+            order.detail_url
+            and any(item.price == Decimal("0") for item in order.items)
+        )
+        assert needs_prices
+
+
+# ===========================================================================
+# _resolve_card_self_or_parent_link tests (mocked Playwright elements)
+# ===========================================================================
+
+
+class TestResolveCardSelfOrParentLink:
+    """Tests for _resolve_card_self_or_parent_link.
+
+    Uses MagicMock objects to simulate Playwright element handles.
+    """
+
+    def test_card_is_anchor_with_orders_href(self):
+        """Returns the card itself when it is an <a> with /orders/ href."""
+        card = MagicMock()
+        card.evaluate.return_value = "a"
+        card.get_attribute.return_value = "/orders/stores/6028-2218-0085-0622"
+
+        result = _resolve_card_self_or_parent_link(None, card)
+        assert result is card
+
+    def test_parent_is_anchor_with_orders_href(self):
+        """Returns the parent when the card's parent is an <a> with /orders/ href."""
+        card = MagicMock()
+        # Card itself is a <div>, not an <a>.
+        card.evaluate.return_value = "div"
+
+        parent = MagicMock()
+        parent.evaluate.return_value = "a"
+        parent.get_attribute.return_value = "/orders/stores/5350-2218-0175-9554"
+        card.evaluate_handle.return_value = parent
+
+        result = _resolve_card_self_or_parent_link(None, card)
+        assert result is parent
+
+    def test_neither_card_nor_parent_is_link(self):
+        """Returns None when neither card nor parent is an <a> with /orders/ href."""
+        card = MagicMock()
+        card.evaluate.return_value = "div"
+
+        parent = MagicMock()
+        parent.evaluate.return_value = "div"
+        card.evaluate_handle.return_value = parent
+
+        result = _resolve_card_self_or_parent_link(None, card)
+        assert result is None
+
+    def test_card_is_anchor_without_orders_href(self):
+        """Returns None when card is <a> but href does not contain /orders/."""
+        card = MagicMock()
+        card.evaluate.return_value = "a"
+        card.get_attribute.return_value = "/account/profile"
+
+        parent = MagicMock()
+        parent.evaluate.return_value = "div"
+        card.evaluate_handle.return_value = parent
+
+        result = _resolve_card_self_or_parent_link(None, card)
+        assert result is None
+
+    def test_parent_is_anchor_without_orders_href(self):
+        """Returns None when parent is <a> but href has no /orders/."""
+        card = MagicMock()
+        card.evaluate.return_value = "div"
+
+        parent = MagicMock()
+        parent.evaluate.return_value = "a"
+        parent.get_attribute.return_value = "/account/dashboard"
+        card.evaluate_handle.return_value = parent
+
+        result = _resolve_card_self_or_parent_link(None, card)
+        assert result is None
+
+    def test_exception_handling(self):
+        """Returns None gracefully when Playwright calls raise exceptions."""
+        card = MagicMock()
+        card.evaluate.side_effect = RuntimeError("Element detached")
+
+        result = _resolve_card_self_or_parent_link(None, card)
+        assert result is None
+
+    def test_no_parent_element(self):
+        """Returns None when parent evaluation returns None."""
+        card = MagicMock()
+        card.evaluate.return_value = "div"
+        card.evaluate_handle.return_value = None
+
+        result = _resolve_card_self_or_parent_link(None, card)
+        assert result is None
+
+    def test_online_order_href_also_matched(self):
+        """A parent <a> with an online order href (/orders/NNNNN) also matches."""
+        card = MagicMock()
+        card.evaluate.return_value = "div"
+
+        parent = MagicMock()
+        parent.evaluate.return_value = "a"
+        parent.get_attribute.return_value = "/orders/102001197478538"
+        card.evaluate_handle.return_value = parent
+
+        result = _resolve_card_self_or_parent_link(None, card)
+        assert result is parent
+
+
+# ===========================================================================
+# Quantity suffix parsing tests
+# ===========================================================================
+
+
+class TestParseQuantityFromName:
+    """Tests for _parse_quantity_from_name."""
+
+    def test_no_suffix(self):
+        """Name without quantity suffix returns quantity 1."""
+        name, qty = _parse_quantity_from_name("Oatly Oatmilk Full Fat - 64 fl oz")
+        assert name == "Oatly Oatmilk Full Fat - 64 fl oz"
+        assert qty == 1
+
+    def test_with_suffix(self):
+        """Name with ' - quantity: N' suffix strips it and returns N."""
+        name, qty = _parse_quantity_from_name(
+            "Fresh Dekopon Mandarin Orange - each - quantity: 4"
+        )
+        assert name == "Fresh Dekopon Mandarin Orange - each"
+        assert qty == 4
+
+    def test_case_insensitive(self):
+        """Suffix matching is case-insensitive."""
+        name, qty = _parse_quantity_from_name("Bananas - Quantity: 6")
+        assert name == "Bananas"
+        assert qty == 6
+
+    def test_quantity_one(self):
+        """Explicit quantity: 1 suffix returns 1."""
+        name, qty = _parse_quantity_from_name("Milk - quantity: 1")
+        assert name == "Milk"
+        assert qty == 1

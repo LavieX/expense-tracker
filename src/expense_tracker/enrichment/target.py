@@ -309,8 +309,13 @@ ITEM_QTY_SELECTOR = ", ".join([
 # This link navigates from the list view to the order detail page.
 ORDER_DETAIL_LINK_SELECTOR = ", ".join([
     'a[href*="/orders/"]',
-    '[data-test="order-details-link"]',
-    '[data-test="store-order-details-link"]',
+    # Restrict data-test selectors to <a> elements.  Target 2025-2026 wraps
+    # in-store order cards in a <div data-test="store-order-details-link">
+    # that contains the actual <a> child.  Without the ``a`` prefix,
+    # query_selector returns the DIV (which has no href/aria-label) because
+    # it appears first in DOM order.
+    'a[data-test="order-details-link"]',
+    'a[data-test="store-order-details-link"]',
     'a[aria-label*="View purchase"]',
     'a[aria-label*="View order"]',
 ])
@@ -2124,6 +2129,54 @@ def _dump_debug_html(page, output_dir: Path) -> Path | None:
         return None
 
 
+def _resolve_card_self_or_parent_link(page, card):
+    """Return the card element (or its parent) if it is an ``<a>`` with an orders href.
+
+    In-store order cards on Target's 2025-2026 site are wrapped in a
+    clickable ``<a>`` tag whose ``href`` points to the order detail page
+    (e.g. ``/orders/stores/6028-2218-0085-0622``).  Because the
+    ``ORDER_CARD_SELECTOR`` matches the inner ``div[class*="orderCard"]``,
+    ``card.query_selector(ORDER_DETAIL_LINK_SELECTOR)`` searches
+    *descendants* only and misses the wrapping ``<a>``.
+
+    This function checks two levels:
+    1. The card element itself (``card``) — is it an ``<a>`` tag?
+    2. The card's immediate parent — is the parent an ``<a>`` tag?
+
+    For each candidate it verifies that the ``href`` contains
+    ``/orders/`` (the pattern used by both online and in-store detail
+    page URLs).
+
+    Args:
+        page: Playwright page object (unused but kept for API consistency).
+        card: The order card Playwright element handle.
+
+    Returns:
+        The ``<a>`` element handle if found, otherwise ``None``.
+    """
+    try:
+        # Check if the card element itself is an <a> with an orders href.
+        tag = card.evaluate("el => el.tagName.toLowerCase()")
+        if tag == "a":
+            href = card.get_attribute("href") or ""
+            if "/orders/" in href:
+                return card
+
+        # Check the card's immediate parent (common pattern: <a> wraps
+        # the orderCard div).
+        parent = card.evaluate_handle("el => el.parentElement")
+        if parent:
+            parent_tag = parent.evaluate("el => el.tagName ? el.tagName.toLowerCase() : ''")
+            if parent_tag == "a":
+                parent_href = parent.get_attribute("href") or ""
+                if "/orders/" in parent_href:
+                    return parent
+    except Exception as exc:
+        logger.debug("Failed to check card/parent for link element: %s", exc)
+
+    return None
+
+
 def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetOrder | None:
     """Parse a single order card element into a TargetOrder.
 
@@ -2157,9 +2210,22 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
     # Its aria-label encodes date + total; its href encodes the order ID.
     # Use the broad ORDER_DETAIL_LINK_SELECTOR for resilience against DOM
     # changes, rather than a single hardcoded selector.
+    #
+    # For in-store orders the entire order card is wrapped in a clickable
+    # ``<a>`` element — the link is a *parent* of the ``orderCard`` div,
+    # not a child.  ``card.query_selector`` only searches descendants, so
+    # it misses the wrapping ``<a>``.  After the child search fails we
+    # check (a) whether the card element itself is an ``<a>``, and (b)
+    # whether the card's immediate parent is an ``<a>`` with the expected
+    # href pattern.
     view_link = card.query_selector(ORDER_DETAIL_LINK_SELECTOR)
     aria_label = ""
     link_href = ""
+
+    if not view_link:
+        # Check if the card element itself is an <a> with a matching href.
+        view_link = _resolve_card_self_or_parent_link(page, card)
+
     if view_link:
         aria_label = view_link.get_attribute("aria-label") or ""
         link_href = view_link.get_attribute("href") or ""
@@ -2284,7 +2350,10 @@ def _parse_order_card(page, card, month_start: date, month_end: date) -> TargetO
     # Fallback for in-store orders: their order cards may not have a
     # clickable link, but the detail page URL is constructable from the
     # dash-format order ID (e.g. "6028-2218-0085-0622").
-    if not detail_url and order_id and "-" in order_id:
+    # Only use this fallback if the order_id actually looks like a real
+    # in-store order ID (4 groups of 4 digits separated by dashes),
+    # not a synthetic "unknown-{date}" ID.
+    if not detail_url and order_id and _INSTORE_ORDER_ID_RE.fullmatch(order_id):
         detail_url = f"https://www.target.com/orders/stores/{order_id}"
 
     return TargetOrder(
