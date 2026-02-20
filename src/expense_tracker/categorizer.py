@@ -73,6 +73,21 @@ class LLMAdapter(Protocol):
 # ---------------------------------------------------------------------------
 
 
+def _is_generic_category(rule: MerchantRule) -> bool:
+    """Check if a rule assigns a generic (no-subcategory) category.
+
+    Generic categories like bare "Shopping", "Insurance", or "Business"
+    are catch-all labels that multi-product retailers (Amazon, Target,
+    Walmart) get assigned when only the merchant name matches.  Product-
+    specific rules in the description can often do better.
+
+    Returns:
+        True if the rule's subcategory is empty or blank, meaning it's
+        a catch-all assignment.
+    """
+    return not rule.subcategory.strip()
+
+
 def match_rules(
     merchant: str,
     rules: list[MerchantRule],
@@ -87,11 +102,18 @@ def match_rules(
     broken by list order: the first match at the longest length wins,
     which naturally favors user rules over learned rules.
 
-    If no rule matches the merchant and a *description* is provided,
-    the same matching logic is applied against the description as a
-    fallback.  This allows product-specific rules to match enriched
-    transactions whose merchant has been normalized to a retailer name
-    (e.g. "Amazon") while the product name lives in the description.
+    When the best merchant match is a generic category (no subcategory)
+    and a *description* is provided, the function first tries to find a
+    more specific match in the description.  If a description match with
+    a subcategory exists, it wins over the generic merchant match.  This
+    allows product-specific rules to categorize enriched transactions
+    from multi-product retailers like Amazon and Target, where the
+    merchant is normalized to the retailer name and the product lives
+    in the description.
+
+    If no rule matches the merchant at all and a *description* is
+    provided, the same matching logic is applied against the description
+    as a final fallback.
 
     Args:
         merchant: The merchant name to match against.
@@ -110,16 +132,41 @@ def match_rules(
         if rule.pattern.upper() in merchant_upper:
             if best is None or len(rule.pattern) > len(best.pattern):
                 best = rule
+
+    # If the merchant match is generic and we have a description,
+    # try to find a more specific match in the description.
+    if best is not None and _is_generic_category(best) and description:
+        desc_match = _match_against_text(description, rules)
+        if desc_match is not None and not _is_generic_category(desc_match):
+            return desc_match
+
     if best is not None:
         return best
 
-    # Fallback: try matching against description.
+    # No merchant match at all: try matching against description.
     if description:
-        desc_upper = description.upper()
-        for rule in rules:
-            if rule.pattern.upper() in desc_upper:
-                if best is None or len(rule.pattern) > len(best.pattern):
-                    best = rule
+        return _match_against_text(description, rules)
+    return None
+
+
+def _match_against_text(text: str, rules: list[MerchantRule]) -> MerchantRule | None:
+    """Find the best matching rule against arbitrary text.
+
+    Same longest-match-wins strategy as merchant matching.
+
+    Args:
+        text: The text to match against (e.g. description).
+        rules: Sorted list of ``MerchantRule`` objects.
+
+    Returns:
+        The best-matching ``MerchantRule``, or ``None``.
+    """
+    text_upper = text.upper()
+    best: MerchantRule | None = None
+    for rule in rules:
+        if rule.pattern.upper() in text_upper:
+            if best is None or len(rule.pattern) > len(best.pattern):
+                best = rule
     return best
 
 
@@ -165,16 +212,28 @@ def categorize(
     errors: list[str] = []
 
     # Pass 1: Rule matching
+    # Transactions that get a generic catch-all category (no subcategory)
+    # AND have a description are deferred to the LLM for a more specific
+    # categorization.  We remember the generic rule so we can fall back
+    # to it if the LLM can't do better.
     uncategorized: list[Transaction] = []
+    generic_fallbacks: dict[str, MerchantRule] = {}  # txn_id -> generic rule
+
     for txn in transactions:
         if txn.category != "Uncategorized":
             # Already categorized (e.g. from enrichment stage).
             continue
         rule = match_rules(txn.merchant, rules, description=txn.description)
         if rule is not None:
-            txn.category = rule.category
-            txn.subcategory = rule.subcategory
-            txn.is_recurring = rule.recurring
+            if _is_generic_category(rule) and txn.description:
+                # Generic match with a description available -- defer to
+                # LLM for a more specific categorization.
+                generic_fallbacks[txn.transaction_id] = rule
+                uncategorized.append(txn)
+            else:
+                txn.category = rule.category
+                txn.subcategory = rule.subcategory
+                txn.is_recurring = rule.recurring
         else:
             uncategorized.append(txn)
 
@@ -220,10 +279,32 @@ def categorize(
                 warnings.append(
                     f"LLM: {unapplied} transaction(s) could not be parsed from response"
                 )
+
+        # Pass 3: Apply generic fallback for transactions that the LLM
+        # couldn't categorize but had a generic rule match.
+        for txn in uncategorized:
+            if txn.category == "Uncategorized" and txn.transaction_id in generic_fallbacks:
+                fallback = generic_fallbacks[txn.transaction_id]
+                txn.category = fallback.category
+                txn.subcategory = fallback.subcategory
+                txn.is_recurring = fallback.recurring
+
     elif uncategorized and llm_adapter is None:
-        warnings.append(
-            f"LLM unavailable: {len(uncategorized)} transaction(s) left uncategorized"
-        )
+        # No LLM available -- apply generic fallbacks where we have them,
+        # warn about the rest.
+        truly_uncategorized = 0
+        for txn in uncategorized:
+            if txn.transaction_id in generic_fallbacks:
+                fallback = generic_fallbacks[txn.transaction_id]
+                txn.category = fallback.category
+                txn.subcategory = fallback.subcategory
+                txn.is_recurring = fallback.recurring
+            else:
+                truly_uncategorized += 1
+        if truly_uncategorized > 0:
+            warnings.append(
+                f"LLM unavailable: {truly_uncategorized} transaction(s) left uncategorized"
+            )
 
     return StageResult(transactions=transactions, warnings=warnings, errors=errors)
 

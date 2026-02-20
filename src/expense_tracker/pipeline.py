@@ -510,16 +510,21 @@ def _categorize(
     case-insensitive substring matching with longest-match-wins.  If no rule
     matches, the transaction retains ``category="Uncategorized"``.
 
+    When the best merchant match is a generic category (no subcategory)
+    and the transaction has a description, the description is checked
+    for a more specific match first.  This allows product-specific rules
+    to override generic retailer rules for enriched transactions from
+    multi-product retailers like Amazon and Target.
+
     LLM fallback (tier 2) is not implemented in this module.  The
     ``categorizer`` module will handle that when available.
     """
+    from expense_tracker.categorizer import match_rules as cat_match_rules
+
     for txn in transactions:
         if txn.category != "Uncategorized":
             continue
-        # Try merchant first, then fall back to description.
-        match = _match_rules(txn.merchant, rules)
-        if match is None and txn.description:
-            match = _match_rules(txn.description, rules)
+        match = cat_match_rules(txn.merchant, rules, description=txn.description)
         if match is not None:
             txn.category = match.category
             txn.subcategory = match.subcategory
