@@ -1,0 +1,55 @@
+# Category taxonomy -- the valid categories and subcategories
+
+[Housing]
+subcategories = ["Mortgage"]
+
+[Utilities]
+subcategories = ["Electric/Water/Internet", "Natural Gas", "Mobile Phone", "Television"]
+
+["Food & Dining"]
+subcategories = ["Groceries", "Restaurant", "Fast Food", "Coffee", "Alcohol", "Delivery"]
+
+[Transportation]
+subcategories = ["Gas/Fuel", "Parking/Tolls", "Public Transit", "Rideshare", "Service & Maintenance", "Registration/DMV"]
+
+[Kids]
+subcategories = ["Clothing", "Supplies", "Activities", "Toys", "School", "Preschool", "Camps"]
+
+["Health & Fitness"]
+subcategories = ["Gym/Classes", "Skiing", "Biking", "Hockey", "Race/Event Fees", "Equipment & Maintenance"]
+
+[Healthcare]
+subcategories = ["Doctor", "Dental", "Vision", "Pharmacy", "Therapy"]
+
+[Entertainment]
+subcategories = ["Tickets/Events", "Games", "Movies", "Subscriptions"]
+
+[Shopping]
+subcategories = ["Clothing", "Electronics", "Home Goods", "Books", "Jewelry"]
+
+["Home & Garden"]
+subcategories = ["Maintenance & Repairs", "Furniture & Decor", "Appliances", "Garden & Lawn", "Tools & Hardware", "Home Services"]
+
+["Personal Care"]
+subcategories = ["Haircut/Barber", "Beauty/Spa", "Cosmetics"]
+
+[Pets]
+subcategories = ["Food", "Vet", "Daycare/Boarding", "Grooming", "Supplies"]
+
+["Gifts & Charity"]
+subcategories = ["Gifts", "Donations"]
+
+[Travel]
+subcategories = ["Flight", "Hotel/Lodging", "Rental Car/Transport", "Vacation/Activities", "Baggage/Fees"]
+
+[Education]
+subcategories = ["Tuition", "Books & Supplies", "Courses/Training"]
+
+[Insurance]
+subcategories = []
+
+[Business]
+subcategories = []
+
+[Miscellaneous]
+subcategories = []

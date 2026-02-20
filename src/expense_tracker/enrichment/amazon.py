@@ -223,8 +223,6 @@ def build_enrichment_data(
     items: list[EnrichmentItem] = []
 
     for li in order.items:
-        # Truncate long product names for readability in CSV output.
-        display_name = li.name[:80] if len(li.name) > 80 else li.name
         item_total = li.price * li.quantity
         items.append(
             EnrichmentItem(
@@ -232,7 +230,7 @@ def build_enrichment_data(
                 price=float(li.price),
                 quantity=li.quantity,
                 category_hint="",
-                merchant=f"AMAZON - {display_name}",
+                merchant="Amazon",
                 description=li.name,
                 amount=str(-item_total),  # Negative for expenses.
             )

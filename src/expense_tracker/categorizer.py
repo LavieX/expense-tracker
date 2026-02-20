@@ -73,7 +73,11 @@ class LLMAdapter(Protocol):
 # ---------------------------------------------------------------------------
 
 
-def match_rules(merchant: str, rules: list[MerchantRule]) -> MerchantRule | None:
+def match_rules(
+    merchant: str,
+    rules: list[MerchantRule],
+    description: str = "",
+) -> MerchantRule | None:
     """Find the best matching rule for a merchant string.
 
     Strategy: case-insensitive substring match, longest pattern wins.
@@ -83,10 +87,18 @@ def match_rules(merchant: str, rules: list[MerchantRule]) -> MerchantRule | None
     broken by list order: the first match at the longest length wins,
     which naturally favors user rules over learned rules.
 
+    If no rule matches the merchant and a *description* is provided,
+    the same matching logic is applied against the description as a
+    fallback.  This allows product-specific rules to match enriched
+    transactions whose merchant has been normalized to a retailer name
+    (e.g. "Amazon") while the product name lives in the description.
+
     Args:
         merchant: The merchant name to match against.
         rules: Sorted list of ``MerchantRule`` objects (user first,
             then learned).
+        description: Optional description string to try matching
+            against if no rule matches the merchant.
 
     Returns:
         The best-matching ``MerchantRule``, or ``None`` if no rule
@@ -98,6 +110,16 @@ def match_rules(merchant: str, rules: list[MerchantRule]) -> MerchantRule | None
         if rule.pattern.upper() in merchant_upper:
             if best is None or len(rule.pattern) > len(best.pattern):
                 best = rule
+    if best is not None:
+        return best
+
+    # Fallback: try matching against description.
+    if description:
+        desc_upper = description.upper()
+        for rule in rules:
+            if rule.pattern.upper() in desc_upper:
+                if best is None or len(rule.pattern) > len(best.pattern):
+                    best = rule
     return best
 
 
@@ -148,7 +170,7 @@ def categorize(
         if txn.category != "Uncategorized":
             # Already categorized (e.g. from enrichment stage).
             continue
-        rule = match_rules(txn.merchant, rules)
+        rule = match_rules(txn.merchant, rules, description=txn.description)
         if rule is not None:
             txn.category = rule.category
             txn.subcategory = rule.subcategory

@@ -360,30 +360,6 @@ def _detect_transfers(
     return StageResult(transactions=transactions)
 
 
-_RETAILER_PREFIXES = [
-    "AMAZON - ",
-    "TARGET - ",
-]
-
-
-def _strip_retailer_prefix(merchant: str) -> str:
-    """Strip known retailer prefixes from enriched merchant names.
-
-    Enrichment splits produce merchant names like "AMAZON - Pyrex Food
-    Storage..." which would match the generic "AMAZON" rule during
-    categorization.  Stripping the prefix lets the product description
-    drive categorization instead.
-
-    If the remaining text after prefix removal is empty or too short
-    (< 3 chars), the original merchant string is returned unchanged so
-    we don't lose useful information.
-    """
-    for prefix in _RETAILER_PREFIXES:
-        if merchant.upper().startswith(prefix.upper()):
-            remainder = merchant[len(prefix):].strip()
-            if len(remainder) >= 3:
-                return remainder
-    return merchant
 
 
 def _detect_retailer_source(retailer_hint: str, merchant: str) -> str:
@@ -484,11 +460,14 @@ def _enrich(
         for i, item in enumerate(items, start=1):
             item_amount = Decimal(str(item.get("amount", "0")))
             split_total += item_amount
-            # Strip retailer prefix (e.g. "AMAZON - ") from enriched
-            # merchant names so splits get categorized by their product
-            # description rather than matching the generic retailer rule.
-            enriched_merchant = item.get("merchant", txn.merchant)
-            enriched_merchant = _strip_retailer_prefix(enriched_merchant)
+            # Use the retailer name (e.g. "Amazon", "Target") as the
+            # merchant for enriched splits.  The product-specific name
+            # lives in the description field so categorization rules can
+            # match against it.
+            if enrichment_source:
+                enriched_merchant = enrichment_source
+            else:
+                enriched_merchant = item.get("merchant", txn.merchant)
             split_txn = Transaction(
                 transaction_id=f"{txn.transaction_id}-{i}",
                 date=txn.date,
@@ -537,7 +516,10 @@ def _categorize(
     for txn in transactions:
         if txn.category != "Uncategorized":
             continue
+        # Try merchant first, then fall back to description.
         match = _match_rules(txn.merchant, rules)
+        if match is None and txn.description:
+            match = _match_rules(txn.description, rules)
         if match is not None:
             txn.category = match.category
             txn.subcategory = match.subcategory

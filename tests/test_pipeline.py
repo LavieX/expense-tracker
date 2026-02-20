@@ -662,10 +662,10 @@ class TestEnrich:
         assert result.transactions[0].split_from == txn.transaction_id
         assert result.transactions[1].split_from == txn.transaction_id
 
-        # Check merchants -- retailer prefix "TARGET - " is stripped
-        # so splits get categorized by product name.
-        assert result.transactions[0].merchant == "Diapers"
-        assert result.transactions[1].merchant == "Snacks"
+        # Check merchants -- normalized to retailer name "Target".
+        # Product names are in the description field.
+        assert result.transactions[0].merchant == "Target"
+        assert result.transactions[1].merchant == "Target"
 
         # Check amounts
         assert result.transactions[0].amount == Decimal("-65.49")

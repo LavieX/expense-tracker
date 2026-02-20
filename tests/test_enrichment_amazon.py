@@ -569,7 +569,7 @@ class TestBuildEnrichmentData:
         assert data.items[0].amount == "-30.00"
 
     def test_merchant_format(self) -> None:
-        """Line items use the 'AMAZON - {name}' merchant format."""
+        """Line items use the normalized 'Amazon' merchant."""
         order = AmazonOrder(
             order_id="test-order",
             order_date=date(2025, 11, 5),
@@ -580,10 +580,11 @@ class TestBuildEnrichmentData:
         )
 
         data = build_enrichment_data(order, "txn_001", "AMAZON")
-        assert data.items[0].merchant == "AMAZON - Cool Gadget"
+        assert data.items[0].merchant == "Amazon"
 
-    def test_long_name_truncated_in_merchant(self) -> None:
-        """Product names longer than 80 chars are truncated in the merchant field."""
+    def test_long_name_preserved_in_description(self) -> None:
+        """Product names longer than 80 chars are preserved in description;
+        merchant is the normalized retailer name."""
         long_name = "A" * 120
         order = AmazonOrder(
             order_id="test-order",
@@ -595,8 +596,8 @@ class TestBuildEnrichmentData:
         )
 
         data = build_enrichment_data(order, "txn_001", "AMAZON")
-        assert len(data.items[0].merchant) <= len("AMAZON - ") + 80
-        # But the full name is preserved in description.
+        assert data.items[0].merchant == "Amazon"
+        # The full name is preserved in description.
         assert data.items[0].description == long_name
 
 
@@ -924,15 +925,16 @@ class TestEnrichmentPipelineIntegration:
         assert result.warnings == []
 
         # Verify split details.
-        # Retailer prefix "AMAZON - " is stripped during enrichment so
-        # split items get categorized by product name, not the generic
-        # AMAZON rule.
-        assert result.transactions[0].merchant == "Widget"
+        # Merchant is normalized to the retailer name "Amazon";
+        # product names are in the description field.
+        assert result.transactions[0].merchant == "Amazon"
+        assert result.transactions[0].description == "Widget"
         assert result.transactions[0].amount == Decimal("-30.00")
         assert result.transactions[0].split_from == "txn_amazon_001"
         assert result.transactions[0].category == "Uncategorized"
 
-        assert result.transactions[1].merchant == "Book"
+        assert result.transactions[1].merchant == "Amazon"
+        assert result.transactions[1].description == "Book"
         assert result.transactions[1].amount == Decimal("-15.00")
         assert result.transactions[1].split_from == "txn_amazon_001"
         assert result.transactions[1].category == "Uncategorized"

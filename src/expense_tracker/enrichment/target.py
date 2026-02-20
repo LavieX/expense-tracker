@@ -709,7 +709,7 @@ def write_enrichment_cache(
     for item in order.items:
         item_total = item.price * item.quantity
         items.append({
-            "merchant": f"Target - {item.name}",
+            "merchant": "Target",
             "description": f"{item.name} (qty {item.quantity})" if item.quantity > 1 else item.name,
             "amount": str(-item_total),
         })
@@ -720,7 +720,7 @@ def write_enrichment_cache(
     remainder = order.order_total - items_sum
     if abs(remainder) > Decimal("0.00"):
         items.append({
-            "merchant": "Target - Tax/Adjustments",
+            "merchant": "Target",
             "description": "Sales tax and adjustments",
             "amount": str(-remainder),
         })

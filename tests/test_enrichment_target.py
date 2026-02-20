@@ -472,7 +472,8 @@ class TestWriteEnrichmentCache:
 
         assert len(data["items"]) == 2
         tax_item = data["items"][-1]
-        assert "Tax" in tax_item["merchant"] or "Adjustment" in tax_item["merchant"]
+        assert tax_item["merchant"] == "Target"
+        assert "tax" in tax_item["description"].lower()
         assert Decimal(tax_item["amount"]) == Decimal("-1.40")
 
     def test_no_tax_line_when_items_sum_to_total(self, tmp_path: Path):
@@ -559,7 +560,7 @@ class TestReadEnrichmentCache:
         data = read_enrichment_cache(path)
         assert data is not None
         assert data["order_id"] == "RT-001"
-        assert data["items"][0]["merchant"] == "Target - Towel"
+        assert data["items"][0]["merchant"] == "Target"
 
 
 # ===========================================================================
