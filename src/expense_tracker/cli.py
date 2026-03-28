@@ -244,8 +244,8 @@ def learn(original: str, corrected: str, verbose: bool) -> None:
 @click.option(
     "--source",
     required=True,
-    type=click.Choice(["amazon", "target"], case_sensitive=False),
-    help="Enrichment source to scrape (amazon or target).",
+    type=click.Choice(["amazon", "target", "venmo"], case_sensitive=False),
+    help="Enrichment source to scrape (amazon, target, or venmo).",
 )
 @click.option("--headless", is_flag=True, default=False, help="Run browser in headless mode.")
 @click.option("--verbose", is_flag=True, default=False, help="Detailed progress output.")
@@ -422,6 +422,31 @@ def enrich(month: str, source: str, headless: bool, verbose: bool, debug: bool) 
             for err in enrich_result.errors:
                 click.echo(f"Error: {err}", err=True)
 
+        click.echo()
+        return
+
+    elif source_lower == "venmo":
+        from expense_tracker.enrichment.venmo import enrich_venmo
+
+        try:
+            result = enrich_venmo(
+                month=month,
+                transactions=txn_dicts,
+                cache_dir=cache_dir,
+                auth_dir=root / ".auth",
+            )
+        except ImportError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            sys.exit(1)
+        except Exception as exc:
+            click.echo(f"Error during Venmo enrichment: {exc}", err=True)
+            sys.exit(1)
+
+        click.echo()
+        click.echo("== Venmo Enrichment Summary ==")
+        click.echo(f"  Venmo transactions:   {result['venmo_transactions']}")
+        click.echo(f"  Matched to bank:      {result['matched']}")
+        click.echo(f"  Cache files written:  {result['cache_written']}")
         click.echo()
         return
 
@@ -666,3 +691,160 @@ def init(target_dir: str) -> None:
         sys.exit(1)
 
     click.echo(f"Initialized expense tracker project in {target}")
+
+
+@cli.command()
+@click.option("--month", required=False, help="Target month in YYYY-MM format.")
+@click.option(
+    "--source",
+    required=False,
+    type=click.Choice(["chase", "capital-one", "elevations", "all"], case_sensitive=False),
+    default="all",
+    help="Bank to download from (default: all).",
+)
+@click.option(
+    "--auth",
+    "auth_only",
+    required=False,
+    type=click.Choice(["chase", "capital-one", "elevations"], case_sensitive=False),
+    help="Interactive auth-only mode: log in and save session, no download.",
+)
+@click.option("--headless", is_flag=True, default=False, help="Run browser in headless mode.")
+@click.option(
+    "--keepass-file",
+    envvar="KEEPASS_FILE",
+    help="Path to KeePass .kdbx file (or set KEEPASS_FILE).",
+)
+@click.option(
+    "--keepass-password",
+    envvar="KEEPASS_PASSWORD",
+    help="KeePass master password (or set KEEPASS_PASSWORD).",
+)
+@click.option("--verbose", is_flag=True, default=False, help="Detailed progress output.")
+@click.option("--debug", is_flag=True, default=False, help="Developer-level diagnostics.")
+def download(
+    month: str | None,
+    source: str,
+    auth_only: str | None,
+    headless: bool,
+    keepass_file: str | None,
+    keepass_password: str | None,
+    verbose: bool,
+    debug: bool,
+) -> None:
+    """Download bank transaction CSVs.
+
+    First run requires an interactive browser for login (MFA / CAPTCHA).
+    Session is saved for subsequent headless runs.
+
+    \b
+    Examples:
+      expense download --month 2026-02                   # all banks
+      expense download --month 2026-02 --source chase    # one bank
+      expense download --auth chase                      # save session only
+    """
+    import asyncio
+
+    _configure_logging(verbose, debug)
+
+    root = Path.cwd()
+    auth_dir = root / ".auth"
+
+    if auth_only:
+        # Auth-only mode: just log in and save session.
+        click.echo(f"Authenticating with {auth_only}…")
+        _run_auth(auth_only, root, auth_dir, keepass_file, keepass_password)
+        return
+
+    if not month:
+        click.echo("Error: --month is required for download (use --auth for auth-only).", err=True)
+        sys.exit(1)
+
+    try:
+        month = _validate_month(month)
+    except click.BadParameter as exc:
+        click.echo(f"Error: {exc.format_message()}", err=True)
+        sys.exit(1)
+
+    sources = (
+        ["chase", "capital-one", "elevations"] if source == "all" else [source.lower()]
+    )
+
+    for src in sources:
+        click.echo(f"\nDownloading {src} for {month}…")
+        result = asyncio.run(
+            _download_source(src, month, root, auth_dir, keepass_file, keepass_password, headless)
+        )
+        if result:
+            click.echo(f"  ✓ {result}")
+        else:
+            click.echo(f"  ✗ {src} download failed.")
+
+
+async def _download_source(
+    source: str,
+    month: str,
+    root: Path,
+    auth_dir: Path,
+    keepass_file: str | None,
+    keepass_password: str | None,
+    headless: bool,
+) -> Path | None:
+    kwargs = dict(
+        month=month,
+        root=root,
+        auth_dir=auth_dir,
+        keepass_file=keepass_file,
+        keepass_password=keepass_password,
+        headless=headless,
+    )
+    if source == "chase":
+        from expense_tracker.download.chase import download_chase
+        return await download_chase(**kwargs)
+    elif source == "capital-one":
+        from expense_tracker.download.capital_one import download_capital_one
+        return await download_capital_one(**kwargs)
+    elif source == "elevations":
+        from expense_tracker.download.elevations import download_elevations
+        return await download_elevations(**kwargs)
+    else:
+        raise ValueError(f"Unknown source: {source}")
+
+
+def _run_auth(
+    bank: str,
+    root: Path,
+    auth_dir: Path,
+    keepass_file: str | None,
+    keepass_password: str | None,
+) -> None:
+    """Run interactive auth for a single bank (no download)."""
+    import asyncio
+
+    async def _auth():
+        # Just run the downloader with a dummy month — it will authenticate,
+        # save the session, then fail gracefully on the download step.
+        # We catch the download failure silently.
+        kwargs = dict(
+            month="2026-01",
+            root=root,
+            auth_dir=auth_dir,
+            keepass_file=keepass_file,
+            keepass_password=keepass_password,
+            headless=False,
+        )
+        try:
+            if bank == "chase":
+                from expense_tracker.download.chase import download_chase
+                await download_chase(**kwargs)
+            elif bank == "capital-one":
+                from expense_tracker.download.capital_one import download_capital_one
+                await download_capital_one(**kwargs)
+            elif bank == "elevations":
+                from expense_tracker.download.elevations import download_elevations
+                await download_elevations(**kwargs)
+        except Exception:
+            pass  # Auth was the goal, download failure is expected.
+
+    asyncio.run(_auth())
+    click.echo(f"  Auth complete for {bank}.")

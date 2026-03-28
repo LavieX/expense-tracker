@@ -823,17 +823,21 @@ def scrape_target_orders(
 
     orders: list[TargetOrder] = []
 
+    # Persistent browser profile directory — keeps cookies, localStorage,
+    # and device fingerprint across runs so "Remember Me" works and Target
+    # doesn't require 2FA every time.
+    profile_dir = auth_dir / "browser-profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
+        context = p.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir),
+            headless=headless,
+            viewport={"width": 1280, "height": 900},
+            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+        )
 
-        # Reuse saved session if available
-        if state_file.is_file():
-            logger.info("Reusing saved Target session from %s", state_file)
-            context = browser.new_context(storage_state=str(state_file))
-        else:
-            context = browser.new_context()
-
-        page = context.new_page()
+        page = context.pages[0] if context.pages else context.new_page()
 
         try:
             # Navigate to Target order history
@@ -869,8 +873,7 @@ def scrape_target_orders(
                     raise RuntimeError(
                         "Login timed out after 5 minutes. Please try again."
                     )
-                context.storage_state(path=str(state_file))
-                logger.info("Saved Target session to %s", state_file)
+                logger.info("Login successful — session persisted via browser profile.")
                 # Let the orders page render after redirect
                 page.wait_for_load_state("networkidle")
 
@@ -958,20 +961,10 @@ def scrape_target_orders(
                 total_cards_found = tab_result[1]
                 orders.extend(tab_result[0])
 
-            # Save session after successful scrape
-            context.storage_state(path=str(state_file))
-
         except Exception:
-            # Save session state even on error so user doesn't have to
-            # re-login next time
-            try:
-                context.storage_state(path=str(state_file))
-            except Exception:
-                pass
             raise
         finally:
             context.close()
-            browser.close()
 
     logger.info("Scraped %d Target orders for %s", len(orders), month)
     return orders

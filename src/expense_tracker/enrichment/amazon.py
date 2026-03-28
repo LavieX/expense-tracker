@@ -549,21 +549,23 @@ class AmazonEnrichmentProvider:
         """
         from playwright.sync_api import sync_playwright
 
-        storage_state_file = auth_dir / "state.json"
+        # Persistent browser profile — keeps cookies, localStorage, and
+        # device fingerprint across runs so Amazon recognises this browser
+        # and doesn't require 2FA every time.
+        profile_dir = auth_dir / "browser-profile"
+        profile_dir.mkdir(parents=True, exist_ok=True)
 
         orders: list[AmazonOrder] = []
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir),
+                headless=False,
+                viewport={"width": 1280, "height": 900},
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            )
 
-            # Load saved session state if available.
-            context_kwargs: dict = {}
-            if storage_state_file.is_file():
-                context_kwargs["storage_state"] = str(storage_state_file)
-                logger.info("Loading saved Amazon session")
-
-            context = browser.new_context(**context_kwargs)
-            page = context.new_page()
+            page = context.pages[0] if context.pages else context.new_page()
 
             try:
                 # Navigate to order history for the target year.
@@ -577,9 +579,7 @@ class AmazonEnrichmentProvider:
                             "Amazon login required. Please log in using the browser window."
                         )
                         self._wait_for_login(page)
-                        # Save session state after successful login.
-                        context.storage_state(path=str(storage_state_file))
-                        logger.info("Saved Amazon session state")
+                        logger.info("Login successful — session persisted via browser profile.")
 
                         # Navigate to order history after login.
                         page.goto(
@@ -594,12 +594,8 @@ class AmazonEnrichmentProvider:
                     page, first_day, last_day, cache_dir=cache_dir,
                 )
 
-                # Save updated session state.
-                context.storage_state(path=str(storage_state_file))
-
             finally:
                 context.close()
-                browser.close()
 
         return orders
 
