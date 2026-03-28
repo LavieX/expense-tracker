@@ -534,15 +534,21 @@ def _find_month_csvs(output_dir: Path) -> list[Path]:
 
 
 @cli.command()
-@click.option("--month", default=None, help="Target month in YYYY-MM format.")
-@click.option("--all", "push_all", is_flag=True, default=False, help="Push all months.")
+@click.option("--month", default=None, help="Target month in YYYY-MM format (upserts only that month).")
+@click.option("--all", "push_all", is_flag=True, default=False, help="Clear sheet and push all months.")
 @click.option("--verbose", is_flag=True, default=False, help="Detailed progress output.")
 def push(month: str | None, push_all: bool, verbose: bool) -> None:
     """Push processed transaction data to Google Sheets.
 
-    By default (no flags), pushes ALL month CSVs found in the output directory.
-    With --month, pushes the specified month combined with all other existing
-    months so the sheet always has the full picture.
+    \b
+    With --month: replaces ONLY that month's data (other months untouched).
+    With --all: clears the entire sheet and rewrites all months.
+    No flags: same as --all.
+
+    \b
+    Examples:
+      expense push --month 2026-02      # upsert February only
+      expense push --all                # full rewrite
     """
     _configure_logging(verbose, debug=False)
 
@@ -593,9 +599,7 @@ def push(month: str | None, push_all: bool, verbose: bool) -> None:
 
     # Determine which CSV files to read
     if month is not None:
-        # --month provided: ensure the requested month exists, then also
-        # gather all other month CSVs so nothing is lost when the sheet
-        # is cleared and rewritten.
+        # --month: only read that month's CSV (upsert mode)
         target_csv = output_dir / f"{month}.csv"
         if not target_csv.exists():
             click.echo(
@@ -604,14 +608,9 @@ def push(month: str | None, push_all: bool, verbose: bool) -> None:
                 err=True,
             )
             sys.exit(1)
-
-        csv_files = _find_month_csvs(output_dir)
-        # Ensure the target is included (it should be, but be explicit)
-        if target_csv not in csv_files:
-            csv_files.append(target_csv)
-            csv_files.sort()
+        csv_files = [target_csv]
     else:
-        # --all or default: read everything
+        # --all or default: read everything (full rewrite)
         csv_files = _find_month_csvs(output_dir)
 
     if not csv_files:
@@ -659,6 +658,7 @@ def push(month: str | None, push_all: bool, verbose: bool) -> None:
             transactions=transactions,
             config=config.sheets,
             root=root,
+            month=month,  # None = full rewrite, "YYYY-MM" = upsert
         )
     except ImportError as exc:
         click.echo(f"Error: {exc}", err=True)
