@@ -181,70 +181,40 @@ def categorize(
     categories: list[dict],
     llm_adapter: LLMAdapter | None = None,
 ) -> StageResult:
-    """Categorize transactions using rule matching and optional LLM fallback.
+    """Categorize transactions using AI as the primary engine.
 
-    This is the Stage 5 pipeline function.  It processes every transaction
-    in two passes:
-
-    1. **Rule matching** -- For each uncategorized transaction, attempt to
-       find a matching rule via ``match_rules()``.  If found, apply the
-       rule's category and subcategory.
-    2. **LLM fallback** -- Gather all still-uncategorized transactions
-       into a single batch and send them to the LLM adapter (if provided
-       and not ``None``).  Apply any suggestions returned.
-    3. Any transactions that remain uncategorized keep
-       ``category="Uncategorized"``.
+    When an LLM adapter is provided, ALL uncategorized transactions are
+    sent to the AI for categorization.  Rules are used only as a fallback
+    when no LLM is available (--no-llm mode).
 
     Args:
-        transactions: List of transactions to categorize (may already have
-            some categorized from earlier stages).
-        rules: Sorted list of merchant rules (user first, then learned).
+        transactions: List of transactions to categorize.
+        rules: Merchant rules (used only as fallback when no LLM).
         categories: Category taxonomy for LLM context.
-        llm_adapter: Optional LLM adapter implementing the
-            ``LLMAdapter`` protocol.  Pass ``None`` to skip LLM
-            categorization.
+        llm_adapter: LLM adapter (primary categorizer).  Pass ``None``
+            to fall back to rule-based categorization.
 
     Returns:
-        A ``StageResult`` containing all transactions (with categories
-        applied where possible) and any warnings.
+        A ``StageResult`` containing all transactions with categories.
     """
     warnings: list[str] = []
     errors: list[str] = []
 
-    # Pass 1: Rule matching
-    # Transactions that get a generic catch-all category (no subcategory)
-    # AND have a description are deferred to the LLM for a more specific
-    # categorization.  We remember the generic rule so we can fall back
-    # to it if the LLM can't do better.
-    uncategorized: list[Transaction] = []
-    generic_fallbacks: dict[str, MerchantRule] = {}  # txn_id -> generic rule
+    # Collect uncategorized transactions
+    uncategorized: list[Transaction] = [
+        txn for txn in transactions if txn.category == "Uncategorized"
+    ]
 
-    for txn in transactions:
-        if txn.category != "Uncategorized":
-            # Already categorized (e.g. from enrichment stage).
-            continue
-        rule = match_rules(txn.merchant, rules, description=txn.description)
-        if rule is not None:
-            if _is_generic_category(rule) and txn.description:
-                # Generic match with a description available -- defer to
-                # LLM for a more specific categorization.
-                generic_fallbacks[txn.transaction_id] = rule
-                uncategorized.append(txn)
-            else:
-                txn.category = rule.category
-                txn.subcategory = rule.subcategory
-                txn.is_recurring = rule.recurring
-        else:
-            uncategorized.append(txn)
-
-    # Pass 2: LLM fallback for remaining uncategorized
     if uncategorized and llm_adapter is not None:
+        # PRIMARY PATH: AI categorization for all uncategorized
         batch = [
             {
+                "id": txn.transaction_id,
                 "merchant": txn.merchant,
                 "description": txn.description,
                 "amount": str(txn.amount),
                 "date": txn.date.isoformat(),
+                "source": txn.source or "",
             }
             for txn in uncategorized
         ]
@@ -256,16 +226,22 @@ def categorize(
             suggestions = []
 
         if suggestions:
-            # Build a lookup from merchant name to suggestion.
-            suggestion_map: dict[str, dict] = {}
+            # Build lookup by transaction ID
+            suggestion_by_id: dict[str, dict] = {}
+            suggestion_by_merchant: dict[str, dict] = {}
             for s in suggestions:
-                merchant_key = s.get("merchant", "").upper()
-                if merchant_key:
-                    suggestion_map[merchant_key] = s
+                if s.get("id"):
+                    suggestion_by_id[s["id"]] = s
+                if s.get("merchant"):
+                    suggestion_by_merchant[s["merchant"].upper()] = s
 
             applied = 0
             for txn in uncategorized:
-                suggestion = suggestion_map.get(txn.merchant.upper())
+                # Try ID match first (reliable), then merchant fallback
+                suggestion = suggestion_by_id.get(txn.transaction_id)
+                if not suggestion:
+                    suggestion = suggestion_by_merchant.get(txn.merchant.upper())
+
                 if suggestion:
                     cat = suggestion.get("category", "")
                     subcat = suggestion.get("subcategory", "")
@@ -274,36 +250,29 @@ def categorize(
                         txn.subcategory = subcat or ""
                         applied += 1
 
-            unapplied = len(uncategorized) - applied
-            if unapplied > 0:
+            still_uncat = len(uncategorized) - applied
+            if still_uncat > 0:
                 warnings.append(
-                    f"LLM: {unapplied} transaction(s) could not be parsed from response"
+                    f"AI categorization: {still_uncat} transaction(s) "
+                    f"not matched in response"
                 )
 
-        # Pass 3: Apply generic fallback for transactions that the LLM
-        # couldn't categorize but had a generic rule match.
-        for txn in uncategorized:
-            if txn.category == "Uncategorized" and txn.transaction_id in generic_fallbacks:
-                fallback = generic_fallbacks[txn.transaction_id]
-                txn.category = fallback.category
-                txn.subcategory = fallback.subcategory
-                txn.is_recurring = fallback.recurring
-
     elif uncategorized and llm_adapter is None:
-        # No LLM available -- apply generic fallbacks where we have them,
-        # warn about the rest.
+        # FALLBACK: Rule-based categorization when no LLM
         truly_uncategorized = 0
         for txn in uncategorized:
-            if txn.transaction_id in generic_fallbacks:
-                fallback = generic_fallbacks[txn.transaction_id]
-                txn.category = fallback.category
-                txn.subcategory = fallback.subcategory
-                txn.is_recurring = fallback.recurring
+            rule = match_rules(txn.merchant, rules, description=txn.description)
+            if rule is not None:
+                txn.category = rule.category
+                txn.subcategory = rule.subcategory
+                txn.is_recurring = rule.recurring
             else:
                 truly_uncategorized += 1
+
         if truly_uncategorized > 0:
             warnings.append(
-                f"LLM unavailable: {truly_uncategorized} transaction(s) left uncategorized"
+                f"No LLM available: {truly_uncategorized} transaction(s) "
+                f"remain uncategorized (run without --no-llm)"
             )
 
     return StageResult(transactions=transactions, warnings=warnings, errors=errors)

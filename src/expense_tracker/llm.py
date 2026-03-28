@@ -1,13 +1,12 @@
-"""LLM adapter interface and Anthropic implementation.
+"""LLM adapter for AI-driven transaction categorization.
 
-Defines the LLMAdapter protocol for categorizing transactions via an LLM,
-plus two implementations:
-- AnthropicAdapter: sends batches to the Anthropic Messages API via httpx.
-- NullAdapter: no-op adapter that always returns an empty list (for --no-llm mode).
+The primary adapter (ClaudeCodeAdapter) invokes Claude Code as a
+subprocess — using the user's existing Max subscription. No API key
+needed. The AnthropicAdapter is kept as a fallback for headless/CI use.
 
-This module depends only on the standard library and httpx. It has no internal
-imports from expense_tracker -- the categorizer passes plain dicts, not
-Transaction objects, to keep the boundary clean.
+Transactions are batched and sent with the full category taxonomy and
+household context. Claude reads each merchant/description and assigns
+the best category.
 """
 
 from __future__ import annotations
@@ -15,125 +14,116 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from typing import Protocol
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_API_VERSION = "2023-06-01"
+# Household context helps Claude understand recurring merchants
+HOUSEHOLD_CONTEXT = """
+This is a household in Longmont, Colorado (Boulder County area).
+- Family with young kids (preschool/elementary age)
+- Pets: dog(s) and fish/aquarium
+- Drives a Tesla (EV charging, not gas — Tesla Supercharger = EV Charging)
+- Dad plays hockey, family skis
+- Colleen (mom) runs a photography/design business (Home Craft Design)
+- Common local merchants: King Soopers (groceries), Sprouts (groceries),
+  Safeway (groceries), Moe's Broadway Bagel (restaurant), Spruce Airport (coffee shop, NOT an airport),
+  Camp Bow Wow (dog daycare), Primrose School (preschool)
+- Venmo payments to "Colleen Tobey" or between family are internal transfers
+- BREEZE THRU is a drive-thru liquor store, not transportation
+- Apple.com/Bill charges are subscriptions (iCloud, Apple Music, Apple One), not electronics
+- Peacock = NBC streaming service subscription
+- ALIGN PT = physical therapy
+- IVY SESSION = therapy
+- Steve and Kate's = kids camp program
+- Winners Circle Longmont = kids arcade/entertainment
+"""
+
+# Max transactions per batch
+BATCH_SIZE = 80
 
 
 class LLMAdapter(Protocol):
-    """Protocol for LLM-based transaction categorization.
-
-    Implementations receive a batch of transaction dicts and a category
-    taxonomy, and return a list of category suggestion dicts. On any
-    failure, implementations must return an empty list rather than raising.
-    """
+    """Protocol for LLM-based transaction categorization."""
 
     def categorize_batch(
         self,
         transactions: list[dict],
         categories: list[dict],
     ) -> list[dict]:
-        """Send a batch of transactions to the LLM for categorization.
-
-        Args:
-            transactions: List of dicts, each with keys:
-                merchant, description, amount, date.
-            categories: List of dicts, each with keys:
-                name (str), subcategories (list[str]).
-
-        Returns:
-            List of dicts, each with keys: merchant, category, subcategory.
-            Empty list on any failure.
-        """
         ...
 
 
 def _build_prompt(transactions: list[dict], categories: list[dict]) -> str:
-    """Construct the categorization prompt per the architecture doc Section 8.
-
-    The prompt contains the category taxonomy, the list of uncategorized
-    transactions, and instructions for the expected JSON response format.
-
-    Args:
-        transactions: Transaction dicts with merchant, description, amount, date.
-        categories: Category taxonomy dicts with name and subcategories.
-
-    Returns:
-        The fully formatted prompt string.
-    """
-    # Format the taxonomy
+    """Build the categorization prompt."""
     taxonomy_lines: list[str] = []
     for cat in categories:
         name = cat["name"]
         subs = cat.get("subcategories", [])
         if subs:
-            sub_str = ", ".join(subs)
-            taxonomy_lines.append(f"- {name}: {sub_str}")
+            taxonomy_lines.append(f"- {name}: {', '.join(subs)}")
         else:
             taxonomy_lines.append(f"- {name}")
     taxonomy_text = "\n".join(taxonomy_lines)
 
-    # Format the transactions
     txn_lines: list[str] = []
     for txn in transactions:
-        txn_lines.append(
-            f"{txn['merchant']} | {txn['description']} | {txn['amount']} | {txn['date']}"
-        )
+        line = f"{txn['id']} | {txn['merchant']} | {txn['description']} | {txn['amount']} | {txn['date']}"
+        if txn.get("source"):
+            line += f" | source:{txn['source']}"
+        txn_lines.append(line)
     txn_text = "\n".join(txn_lines)
 
     return (
-        "You are categorizing household expenses. For each transaction below,\n"
-        "assign the most appropriate category and subcategory from the provided taxonomy.\n"
+        "You are categorizing household expenses. For EVERY transaction below,\n"
+        "assign the single best category and subcategory from the taxonomy.\n"
         "\n"
-        "## Important: Multi-Product Retailers\n"
-        "For transactions from large multi-product retailers like Amazon, Target,\n"
-        "and Walmart, the DESCRIPTION field contains the actual product purchased.\n"
-        "Categorize based on the product in the description, NOT the retailer name.\n"
-        "For example, an Amazon purchase of dog food should be Pets:Food, not Shopping.\n"
+        "## Household Context\n"
+        f"{HOUSEHOLD_CONTEXT}\n"
+        "\n"
+        "## Rules\n"
+        "- Categorize based on what was ACTUALLY purchased, not the retailer.\n"
+        "  Amazon/Target/Walmart items: read the description (product name).\n"
+        "- Food items (produce, meat, dairy, beverages, snacks) from ANY store = Food & Dining:Groceries\n"
+        "- Children's medicine (Motrin, Tylenol, Pepto) = Healthcare:Pharmacy\n"
+        "- Skin care products (Aquaphor, lotions) for people = Healthcare:Pharmacy or Personal Care\n"
+        "- Makeup/cosmetics (Maybelline, e.l.f.) = Personal Care:Cosmetics\n"
+        "- Kids' clothing/shoes (Cat & Jack, toddler items) = Kids:Clothing\n"
+        "- Flowers from florists = Gifts & Charity:Flowers\n"
+        "- Hotels/lodging = Travel:Hotel/Lodging\n"
+        "- Sales tax line items: match the category of the other items in the same split\n"
+        "- Refunds/returns (positive amounts): use the same category as the original charge\n"
+        "- If a transaction is clearly an internal transfer (Venmo between spouses), use Miscellaneous:Transfers\n"
         "\n"
         "## Category Taxonomy\n"
         f"{taxonomy_text}\n"
         "\n"
-        "## Transactions to Categorize\n"
+        "## Transactions\n"
+        f"ID | Merchant | Description | Amount | Date [| source]\n"
         f"{txn_text}\n"
         "\n"
         "## Response Format\n"
-        'Return a JSON array. Each element:\n'
-        '{"merchant": "...", "category": "...", "subcategory": "..."}\n'
+        "Return ONLY a JSON array with one object per transaction:\n"
+        '[{"id": "...", "category": "...", "subcategory": "..."}]\n'
         "\n"
-        "Use only categories and subcategories from the taxonomy above.\n"
-        "If no subcategory applies, use an empty string for subcategory."
+        "Use the transaction ID from the first column. Use ONLY categories and\n"
+        "subcategories from the taxonomy. Empty string for subcategory if none fits.\n"
+        "You MUST return exactly one entry per transaction — do not skip any.\n"
+        "Return ONLY the JSON array, no other text."
     )
 
 
-def _parse_response(text: str) -> list[dict]:
-    """Extract and parse the JSON array from the LLM response text.
-
-    The LLM may wrap the JSON in markdown code fences or include
-    explanatory text. This function finds the first '[' and last ']'
-    to extract the array.
-
-    Args:
-        text: Raw text from the LLM response.
-
-    Returns:
-        Parsed list of dicts, or empty list if parsing fails.
-    """
-    # Find the JSON array boundaries
+def _parse_response(text: str, expected_count: int = 0) -> list[dict]:
+    """Extract the JSON array from the LLM response."""
     start = text.find("[")
     end = text.rfind("]")
     if start == -1 or end == -1 or end <= start:
         logger.warning("LLM response does not contain a JSON array")
         return []
 
-    json_str = text[start : end + 1]
     try:
-        result = json.loads(json_str)
+        result = json.loads(text[start : end + 1])
     except json.JSONDecodeError as exc:
         logger.warning("Failed to parse JSON from LLM response: %s", exc)
         return []
@@ -142,51 +132,129 @@ def _parse_response(text: str) -> list[dict]:
         logger.warning("LLM response JSON is not a list")
         return []
 
-    # Validate each element has the required keys
     validated: list[dict] = []
     for item in result:
         if not isinstance(item, dict):
-            logger.warning("Skipping non-dict item in LLM response: %s", item)
             continue
-        if "merchant" not in item or "category" not in item:
-            logger.warning("Skipping item missing required keys: %s", item)
-            continue
-        validated.append(
-            {
+        if "id" in item and "category" in item:
+            validated.append({
+                "id": str(item["id"]),
+                "category": str(item["category"]),
+                "subcategory": str(item.get("subcategory", "")),
+            })
+        elif "merchant" in item and "category" in item:
+            validated.append({
+                "id": "",
                 "merchant": str(item["merchant"]),
                 "category": str(item["category"]),
                 "subcategory": str(item.get("subcategory", "")),
-            }
+            })
+
+    if expected_count and len(validated) < expected_count:
+        logger.warning(
+            "LLM returned %d categorizations for %d transactions",
+            len(validated), expected_count,
         )
 
     return validated
 
 
-class AnthropicAdapter:
-    """LLM adapter that calls the Anthropic Messages API via httpx.
+class ClaudeCodeAdapter:
+    """Categorization via Claude Code subprocess (uses Max subscription).
 
-    Reads the API key from the environment variable specified in config
-    (``api_key_env``). Constructs a single prompt containing all
-    uncategorized transactions and the category taxonomy, sends one
-    HTTP POST, and parses the structured JSON response.
-
-    On any failure (missing API key, network error, auth error, rate
-    limit, unparseable response), returns an empty list. The categorizer
-    treats this as "LLM unavailable" and leaves transactions uncategorized.
-
-    Args:
-        model: The Anthropic model identifier, e.g. "claude-sonnet-4-20250514".
-        api_key_env: Name of the environment variable containing the API key.
-        max_tokens: Maximum tokens in the LLM response. Default: 4096.
-        timeout: HTTP request timeout in seconds. Default: 60.
+    Invokes ``claude`` CLI with the categorization prompt. No API key
+    needed — uses the same subscription as the interactive Claude Code
+    session.
     """
+
+    def __init__(self, model: str = "sonnet") -> None:
+        self.model = model
+
+    def categorize_batch(
+        self,
+        transactions: list[dict],
+        categories: list[dict],
+    ) -> list[dict]:
+        if not transactions:
+            return []
+
+        all_results: list[dict] = []
+
+        for i in range(0, len(transactions), BATCH_SIZE):
+            batch = transactions[i : i + BATCH_SIZE]
+            batch_num = i // BATCH_SIZE + 1
+            total_batches = (len(transactions) + BATCH_SIZE - 1) // BATCH_SIZE
+
+            if total_batches > 1:
+                logger.info(
+                    "Categorizing batch %d/%d (%d transactions)",
+                    batch_num, total_batches, len(batch),
+                )
+
+            results = self._invoke_claude(batch, categories)
+            all_results.extend(results)
+
+        return all_results
+
+    def _invoke_claude(
+        self,
+        transactions: list[dict],
+        categories: list[dict],
+    ) -> list[dict]:
+        """Call claude CLI as a subprocess."""
+        prompt = _build_prompt(transactions, categories)
+
+        try:
+            result = subprocess.run(
+                [
+                    "claude",
+                    "--print",  # Output only, no interactive mode
+                    "--model", self.model,
+                    "--max-turns", "1",
+                    "-p", prompt,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+
+            if result.returncode != 0:
+                logger.warning(
+                    "claude CLI returned exit code %d: %s",
+                    result.returncode, result.stderr[:200],
+                )
+                return []
+
+            response_text = result.stdout
+            if not response_text.strip():
+                logger.warning("claude CLI returned empty response")
+                return []
+
+            return _parse_response(response_text, len(transactions))
+
+        except FileNotFoundError:
+            logger.error(
+                "claude CLI not found. Install Claude Code: "
+                "https://docs.anthropic.com/en/docs/claude-code"
+            )
+            return []
+        except subprocess.TimeoutExpired:
+            logger.warning("claude CLI timed out after 120s")
+            return []
+        except Exception as exc:
+            logger.warning("claude CLI invocation failed: %s", exc)
+            return []
+
+
+class AnthropicAdapter:
+    """Direct Anthropic API adapter (requires API credits)."""
 
     def __init__(
         self,
-        model: str,
-        api_key_env: str,
-        max_tokens: int = 4096,
-        timeout: float = 60.0,
+        model: str = "claude-sonnet-4-20250514",
+        api_key_env: str = "ANTHROPIC_API_KEY",
+        max_tokens: int = 8192,
+        timeout: float = 90.0,
     ) -> None:
         self.model = model
         self.api_key_env = api_key_env
@@ -198,109 +266,56 @@ class AnthropicAdapter:
         transactions: list[dict],
         categories: list[dict],
     ) -> list[dict]:
-        """Send a batch of transactions to Anthropic for categorization.
-
-        Args:
-            transactions: List of dicts with merchant, description, amount, date.
-            categories: Category taxonomy as list of dicts with name and subcategories.
-
-        Returns:
-            List of suggestion dicts with merchant, category, subcategory.
-            Empty list on any failure.
-        """
         if not transactions:
             return []
 
-        # Read the API key from the environment
+        import httpx
+
         api_key = os.environ.get(self.api_key_env, "")
         if not api_key:
             logger.warning(
-                "LLM API key not found in environment variable '%s'",
-                self.api_key_env,
+                "LLM API key not found in '%s'", self.api_key_env,
             )
             return []
 
+        all_results: list[dict] = []
+        for i in range(0, len(transactions), BATCH_SIZE):
+            batch = transactions[i : i + BATCH_SIZE]
+            results = self._call_api(batch, categories, api_key, httpx)
+            all_results.extend(results)
+
+        return all_results
+
+    def _call_api(self, transactions, categories, api_key, httpx):
         prompt = _build_prompt(transactions, categories)
-
-        request_body = {
-            "model": self.model,
-            "max_tokens": self.max_tokens,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-        }
-
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": ANTHROPIC_API_VERSION,
-            "content-type": "application/json",
-        }
-
         try:
             response = httpx.post(
-                ANTHROPIC_API_URL,
-                json=request_body,
-                headers=headers,
+                "https://api.anthropic.com/v1/messages",
+                json={
+                    "model": self.model,
+                    "max_tokens": self.max_tokens,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
                 timeout=self.timeout,
             )
             response.raise_for_status()
-        except httpx.TimeoutException:
-            logger.warning("LLM request timed out")
-            return []
-        except httpx.HTTPStatusError as exc:
-            logger.warning(
-                "LLM API returned HTTP %d: %s",
-                exc.response.status_code,
-                exc.response.text[:200],
-            )
-            return []
-        except httpx.HTTPError as exc:
-            logger.warning("LLM request failed: %s", exc)
-            return []
-
-        # Extract text from the Anthropic response format
-        try:
             body = response.json()
-            content_blocks = body.get("content", [])
-            text_parts: list[str] = []
-            for block in content_blocks:
-                if block.get("type") == "text":
-                    text_parts.append(block["text"])
-            response_text = "\n".join(text_parts)
-        except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            logger.warning("Failed to extract text from LLM response: %s", exc)
+            text = "\n".join(
+                b["text"] for b in body.get("content", []) if b.get("type") == "text"
+            )
+            return _parse_response(text, len(transactions))
+        except Exception as exc:
+            logger.warning("Anthropic API call failed: %s", exc)
             return []
-
-        if not response_text:
-            logger.warning("LLM response contained no text content")
-            return []
-
-        return _parse_response(response_text)
 
 
 class NullAdapter:
-    """No-op LLM adapter for --no-llm mode.
+    """No-op adapter for --no-llm mode."""
 
-    Always returns an empty list. Used when LLM categorization is
-    disabled via the --no-llm flag or when llm_provider is set to "none"
-    in config.
-    """
-
-    def categorize_batch(
-        self,
-        transactions: list[dict],
-        categories: list[dict],
-    ) -> list[dict]:
-        """Return an empty list (no LLM categorization).
-
-        Args:
-            transactions: Ignored.
-            categories: Ignored.
-
-        Returns:
-            An empty list, always.
-        """
+    def categorize_batch(self, transactions, categories):
         return []

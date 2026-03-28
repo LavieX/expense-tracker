@@ -119,7 +119,7 @@ class MockLLMAdapter:
             if key in self.suggestions:
                 cat, subcat = self.suggestions[key]
                 result.append(
-                    {"merchant": merchant, "category": cat, "subcategory": subcat}
+                    {"id": txn.get("id", ""), "merchant": merchant, "category": cat, "subcategory": subcat}
                 )
         return result
 
@@ -352,8 +352,8 @@ class TestCategorize:
         assert result.transactions[0].category == "Shopping"
         assert result.transactions[0].subcategory == "Clothing"
 
-    def test_llm_fallback_for_uncategorized(self):
-        """Uncategorized transactions (no rule match) should be sent to the LLM."""
+    def test_llm_primary_categorization(self):
+        """All uncategorized transactions should be sent to the LLM."""
         rules = [
             MerchantRule(
                 pattern="CHIPOTLE",
@@ -364,6 +364,7 @@ class TestCategorize:
         ]
         mock_llm = MockLLMAdapter(
             suggestions={
+                "CHIPOTLE MEXICAN GRIL": ("Food & Dining", "Fast Food"),
                 "NEW MERCHANT XYZ": ("Shopping", "Electronics"),
             }
         )
@@ -374,16 +375,13 @@ class TestCategorize:
 
         result = categorize(txns, rules, SAMPLE_CATEGORIES, llm_adapter=mock_llm)
 
-        # Chipotle matched by rule
+        # Both categorized by LLM
         assert result.transactions[0].category == "Food & Dining"
-        # New merchant categorized by LLM
         assert result.transactions[1].category == "Shopping"
         assert result.transactions[1].subcategory == "Electronics"
-        # LLM was called once
+        # LLM was called once with ALL uncategorized
         assert len(mock_llm.calls) == 1
-        # Only the uncategorized transaction was sent to LLM
-        assert len(mock_llm.calls[0][0]) == 1
-        assert mock_llm.calls[0][0][0]["merchant"] == "NEW MERCHANT XYZ"
+        assert len(mock_llm.calls[0][0]) == 2
 
     def test_llm_receives_categories(self):
         """The LLM adapter should receive the category taxonomy."""
@@ -396,8 +394,22 @@ class TestCategorize:
         assert len(mock_llm.calls) == 1
         assert mock_llm.calls[0][1] == SAMPLE_CATEGORIES
 
-    def test_llm_not_called_when_all_categorized(self):
-        """If all transactions match rules, the LLM should not be called."""
+    def test_llm_not_called_when_already_categorized(self):
+        """If transactions are already categorized (from enrichment), LLM skips them."""
+        rules = []
+        mock_llm = MockLLMAdapter()
+        txns = [_make_txn("CHIPOTLE MEXICAN GRIL")]
+        # Pre-categorize (e.g. from enrichment stage)
+        txns[0].category = "Food & Dining"
+        txns[0].subcategory = "Fast Food"
+
+        result = categorize(txns, rules, SAMPLE_CATEGORIES, llm_adapter=mock_llm)
+
+        assert result.transactions[0].category == "Food & Dining"
+        assert len(mock_llm.calls) == 0
+
+    def test_no_llm_falls_back_to_rules(self):
+        """When no LLM is available, rules are used as fallback."""
         rules = [
             MerchantRule(
                 pattern="CHIPOTLE",
@@ -406,13 +418,11 @@ class TestCategorize:
                 source="user",
             ),
         ]
-        mock_llm = MockLLMAdapter()
         txns = [_make_txn("CHIPOTLE MEXICAN GRIL")]
 
-        result = categorize(txns, rules, SAMPLE_CATEGORIES, llm_adapter=mock_llm)
+        result = categorize(txns, rules, SAMPLE_CATEGORIES, llm_adapter=None)
 
         assert result.transactions[0].category == "Food & Dining"
-        assert len(mock_llm.calls) == 0
 
     def test_llm_failure_leaves_uncategorized(self):
         """If the LLM raises an exception, transactions stay Uncategorized."""
@@ -433,27 +443,27 @@ class TestCategorize:
         result = categorize(txns, rules, SAMPLE_CATEGORIES, llm_adapter=None)
 
         assert result.transactions[0].category == "Uncategorized"
-        assert any("LLM unavailable" in w for w in result.warnings)
+        assert any("No LLM available" in w for w in result.warnings)
 
     def test_llm_partial_response(self):
         """If the LLM only categorizes some transactions, others stay Uncategorized."""
         rules = []
         mock_llm = MockLLMAdapter(
             suggestions={
-                "MERCHANT A": ("Shopping", ""),
-                # MERCHANT B not in suggestions
+                "MERCHANT AAA": ("Shopping", ""),
+                # MERCHANT BBB not in suggestions
             }
         )
         txns = [
-            _make_txn("MERCHANT A"),
-            _make_txn("MERCHANT B"),
+            _make_txn("MERCHANT AAA", transaction_id="txn_aaa"),
+            _make_txn("MERCHANT BBB", transaction_id="txn_bbb"),
         ]
 
         result = categorize(txns, rules, SAMPLE_CATEGORIES, llm_adapter=mock_llm)
 
         assert result.transactions[0].category == "Shopping"
         assert result.transactions[1].category == "Uncategorized"
-        assert any("could not be parsed" in w for w in result.warnings)
+        assert any("not matched" in w for w in result.warnings)
 
     def test_empty_transaction_list(self):
         """An empty transaction list should return an empty StageResult."""
@@ -463,8 +473,7 @@ class TestCategorize:
         assert result.errors == []
 
     def test_categorize_with_sample_fixtures(self, sample_transactions, sample_rules):
-        """Integration test using the shared fixtures from conftest."""
-        # Only categorize January transactions that are uncategorized
+        """Integration test: AI categorizes all transactions."""
         uncategorized_txns = [
             _make_txn(
                 "TARGET 00022186",
@@ -478,6 +487,7 @@ class TestCategorize:
 
         mock_llm = MockLLMAdapter(
             suggestions={
+                "TARGET 00022186": ("Shopping", ""),
                 "VMWARE INC": ("Business", ""),
             }
         )
@@ -489,9 +499,8 @@ class TestCategorize:
             llm_adapter=mock_llm,
         )
 
-        # TARGET should match the learned rule
+        # Both categorized by AI
         assert result.transactions[0].category == "Shopping"
-        # VMWARE should be categorized by LLM
         assert result.transactions[1].category == "Business"
 
     def test_llm_batch_contains_correct_fields(self):

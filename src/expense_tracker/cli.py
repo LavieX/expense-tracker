@@ -98,19 +98,25 @@ def process(month: str, no_llm: bool, verbose: bool, debug: bool) -> None:
 
     # Select LLM adapter
     from expense_tracker.categorizer import categorize
-    from expense_tracker.llm import AnthropicAdapter, NullAdapter
+    from expense_tracker.llm import AnthropicAdapter, ClaudeCodeAdapter, NullAdapter
 
     if no_llm or config.llm_provider == "none":
         llm_adapter = NullAdapter()
         if verbose:
             click.echo("LLM categorization disabled.")
-    else:
+    elif config.llm_provider == "anthropic":
+        # Direct API (requires credits)
         llm_adapter = AnthropicAdapter(
             model=config.llm_model,
             api_key_env=config.llm_api_key_env,
         )
         if verbose:
-            click.echo(f"Using LLM: {config.llm_provider} ({config.llm_model})")
+            click.echo(f"Using LLM: Anthropic API ({config.llm_model})")
+    else:
+        # Default: Claude Code subprocess (uses Max subscription)
+        llm_adapter = ClaudeCodeAdapter()
+        if verbose:
+            click.echo("Using LLM: Claude Code (Max subscription)")
 
     # Run the pipeline (stages 1-5: parse, filter, exclude, dedup, transfers, enrich, rule-categorize)
     from expense_tracker.pipeline import run

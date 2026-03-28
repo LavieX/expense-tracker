@@ -548,7 +548,7 @@ class TestLLMFallback:
         with (
             patch.dict(os.environ, {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
             patch(
-                "expense_tracker.llm.httpx.post", return_value=mock_response
+                "httpx.post", return_value=mock_response
             ) as mock_post,
         ):
             result = runner.invoke(
@@ -615,7 +615,7 @@ class TestLLMFallback:
         with (
             patch.dict(os.environ, {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
             patch(
-                "expense_tracker.llm.httpx.post", return_value=mock_response
+                "httpx.post", return_value=mock_response
             ),
         ):
             result = runner.invoke(

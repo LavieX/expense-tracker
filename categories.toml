@@ -1,43 +1,43 @@
 # Category taxonomy -- the valid categories and subcategories
 
 [Housing]
-subcategories = ["Mortgage"]
+subcategories = ["Mortgage", "Rent", "HOA", "Cleaning", "Remodel"]
 
 [Utilities]
-subcategories = ["Electric/Water/Internet", "Natural Gas", "Mobile Phone", "Television"]
+subcategories = ["Electric/Water/Internet", "Natural Gas", "Mobile Phone", "Television", "Subscriptions"]
 
 ["Food & Dining"]
-subcategories = ["Groceries", "Restaurant", "Fast Food", "Coffee", "Alcohol", "Delivery"]
+subcategories = ["Groceries", "Restaurants", "Fast Food", "Coffee", "Alcohol", "Delivery", "Cafeteria"]
 
 [Transportation]
-subcategories = ["Gas/Fuel", "Parking/Tolls", "Public Transit", "Rideshare", "Service & Maintenance", "Registration/DMV"]
+subcategories = ["Gas/Fuel", "EV Charging", "Parking", "Tolls", "Public Transit", "Rideshare", "Service & Maintenance", "Registration/DMV"]
 
 [Kids]
-subcategories = ["Clothing", "Supplies", "Activities", "Toys", "School", "Preschool", "Camps"]
+subcategories = ["Clothing", "Supplies", "Activities", "Toys", "Games", "School", "Preschool", "Camps", "Subscriptions", "Gifts"]
 
 ["Health & Fitness"]
-subcategories = ["Gym/Classes", "Skiing", "Biking", "Hockey", "Race/Event Fees", "Equipment & Maintenance"]
+subcategories = ["Gym/Classes", "Skiing", "Biking", "Hockey", "Race/Event Fees", "Equipment"]
 
 [Healthcare]
-subcategories = ["Doctor", "Dental", "Vision", "Pharmacy", "Therapy"]
+subcategories = ["Doctor", "Dental", "Vision", "Pharmacy", "Therapy", "Physical Therapy", "Urgent Care", "Medical", "Wellness", "Supplements"]
 
 [Entertainment]
-subcategories = ["Tickets/Events", "Games", "Movies", "Subscriptions"]
+subcategories = ["Concerts", "Shows", "Movies", "Games", "Subscriptions", "Events", "Travel"]
 
 [Shopping]
-subcategories = ["Clothing", "Electronics", "Home Goods", "Books", "Jewelry"]
+subcategories = ["Clothing", "Electronics", "Home Goods", "Books", "Jewelry", "Sporting Goods", "Office Supplies", "General", "Party Supplies"]
 
 ["Home & Garden"]
-subcategories = ["Maintenance & Repairs", "Furniture & Decor", "Appliances", "Garden & Lawn", "Tools & Hardware", "Home Services"]
+subcategories = ["Maintenance & Repairs", "Furniture & Decor", "Appliances", "Garden & Lawn", "Tools & Hardware", "Home Services", "Kitchen"]
 
 ["Personal Care"]
-subcategories = ["Haircut/Barber", "Beauty/Spa", "Cosmetics"]
+subcategories = ["Haircut/Barber", "Beauty/Spa", "Cosmetics", "Grooming"]
 
 [Pets]
 subcategories = ["Food", "Vet", "Daycare/Boarding", "Grooming", "Supplies"]
 
 ["Gifts & Charity"]
-subcategories = ["Gifts", "Donations"]
+subcategories = ["Gifts", "Donations", "Flowers"]
 
 [Travel]
 subcategories = ["Flight", "Hotel/Lodging", "Rental Car/Transport", "Vacation/Activities", "Baggage/Fees"]
@@ -49,7 +49,7 @@ subcategories = ["Tuition", "Books & Supplies", "Courses/Training"]
 subcategories = []
 
 [Business]
-subcategories = []
+subcategories = ["Software", "Advertising", "Photography", "Expenses", "Legal", "Website"]
 
 [Miscellaneous]
-subcategories = []
+subcategories = ["Transfers"]

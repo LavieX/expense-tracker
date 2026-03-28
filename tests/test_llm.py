@@ -24,12 +24,14 @@ from expense_tracker.llm import (
 
 SAMPLE_TRANSACTIONS = [
     {
+        "id": "txn_target_001",
         "merchant": "TARGET 00022186",
         "description": "TARGET        00022186",
         "amount": "-127.98",
         "date": "2026-01-25",
     },
     {
+        "id": "txn_rei_001",
         "merchant": "REI.COM 800-426-4840",
         "description": "REI.COM  800-426-4840",
         "amount": "-160.65",
@@ -89,16 +91,16 @@ class TestBuildPrompt:
     def test_contains_transactions(self):
         """Prompt includes all transaction details in pipe-delimited format."""
         prompt = _build_prompt(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
-        assert "## Transactions to Categorize" in prompt
-        assert "TARGET 00022186 | TARGET        00022186 | -127.98 | 2026-01-25" in prompt
-        assert "REI.COM 800-426-4840 | REI.COM  800-426-4840 | -160.65 | 2026-01-12" in prompt
+        assert "## Transactions" in prompt
+        assert "txn_target_001 | TARGET 00022186 | TARGET        00022186 | -127.98 | 2026-01-25" in prompt
+        assert "txn_rei_001 | REI.COM 800-426-4840 | REI.COM  800-426-4840 | -160.65 | 2026-01-12" in prompt
 
     def test_contains_response_format_instructions(self):
         """Prompt includes JSON response format instructions."""
         prompt = _build_prompt(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
         assert "## Response Format" in prompt
         assert "JSON array" in prompt
-        assert '"merchant"' in prompt
+        assert '"id"' in prompt
         assert '"category"' in prompt
         assert '"subcategory"' in prompt
 
@@ -110,14 +112,14 @@ class TestBuildPrompt:
     def test_empty_transactions(self):
         """Prompt is still well-formed with zero transactions."""
         prompt = _build_prompt([], SAMPLE_CATEGORIES)
-        assert "## Transactions to Categorize" in prompt
+        assert "## Transactions" in prompt
         assert "## Category Taxonomy" in prompt
 
     def test_empty_categories(self):
         """Prompt is still well-formed with zero categories."""
         prompt = _build_prompt(SAMPLE_TRANSACTIONS, [])
         assert "## Category Taxonomy" in prompt
-        assert "## Transactions to Categorize" in prompt
+        assert "## Transactions" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +279,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response) as mock_post,
+            patch("httpx.post", return_value=mock_response) as mock_post,
         ):
             result = adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -294,7 +296,7 @@ class TestAnthropicAdapter:
 
         request_body = call_kwargs.kwargs["json"]
         assert request_body["model"] == "claude-sonnet-4-20250514"
-        assert request_body["max_tokens"] == 4096
+        assert request_body["max_tokens"] == 8192
         assert len(request_body["messages"]) == 1
         assert request_body["messages"][0]["role"] == "user"
 
@@ -308,7 +310,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response) as mock_post,
+            patch("httpx.post", return_value=mock_response) as mock_post,
         ):
             adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -323,7 +325,7 @@ class TestAnthropicAdapter:
     def test_empty_transactions_returns_empty(self):
         """Adapter returns empty list without making an API call for empty input."""
         adapter = self._make_adapter()
-        with patch("expense_tracker.llm.httpx.post") as mock_post:
+        with patch("httpx.post") as mock_post:
             result = adapter.categorize_batch([], SAMPLE_CATEGORIES)
 
         assert result == []
@@ -336,7 +338,7 @@ class TestAnthropicAdapter:
         adapter = self._make_adapter(api_key_env="NONEXISTENT_KEY_VAR")
         with (
             patch.dict("os.environ", {}, clear=True),
-            patch("expense_tracker.llm.httpx.post") as mock_post,
+            patch("httpx.post") as mock_post,
         ):
             result = adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -348,7 +350,7 @@ class TestAnthropicAdapter:
         adapter = self._make_adapter()
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": ""}),
-            patch("expense_tracker.llm.httpx.post") as mock_post,
+            patch("httpx.post") as mock_post,
         ):
             result = adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -367,7 +369,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-bad-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response),
+            patch("httpx.post", return_value=mock_response),
         ):
             result = adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -383,7 +385,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response),
+            patch("httpx.post", return_value=mock_response),
         ):
             result = adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -399,7 +401,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response),
+            patch("httpx.post", return_value=mock_response),
         ):
             result = adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -411,7 +413,7 @@ class TestAnthropicAdapter:
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
             patch(
-                "expense_tracker.llm.httpx.post",
+                "httpx.post",
                 side_effect=httpx.TimeoutException("Connection timed out"),
             ),
         ):
@@ -425,7 +427,7 @@ class TestAnthropicAdapter:
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
             patch(
-                "expense_tracker.llm.httpx.post",
+                "httpx.post",
                 side_effect=httpx.ConnectError("Connection refused"),
             ),
         ):
@@ -445,7 +447,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response),
+            patch("httpx.post", return_value=mock_response),
         ):
             result = adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -461,7 +463,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response),
+            patch("httpx.post", return_value=mock_response),
         ):
             result = adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -481,7 +483,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response),
+            patch("httpx.post", return_value=mock_response),
         ):
             result = adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -503,7 +505,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response),
+            patch("httpx.post", return_value=mock_response),
         ):
             result = adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -525,7 +527,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response) as mock_post,
+            patch("httpx.post", return_value=mock_response) as mock_post,
         ):
             adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -545,7 +547,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response) as mock_post,
+            patch("httpx.post", return_value=mock_response) as mock_post,
         ):
             adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
@@ -567,7 +569,7 @@ class TestAnthropicAdapter:
         )
         with (
             patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "sk-ant-test-key"}),
-            patch("expense_tracker.llm.httpx.post", return_value=mock_response) as mock_post,
+            patch("httpx.post", return_value=mock_response) as mock_post,
         ):
             adapter.categorize_batch(SAMPLE_TRANSACTIONS, SAMPLE_CATEGORIES)
 
