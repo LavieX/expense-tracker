@@ -90,15 +90,33 @@ async def download_elevations(
             await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
             await asyncio.sleep(3)
 
-            # Pre-fill username
+            # Fill username and password
             try:
                 await page.focus("#username")
-                await page.keyboard.type(username, delay=60)
-            except:
-                pass
+                await page.keyboard.type(username, delay=50)
+                await page.focus("#password")
+                await page.keyboard.type(password, delay=50)
+                print("  Creds filled.")
+            except Exception as exc:
+                print(f"  Could not fill creds: {exc}")
 
-            print("  Complete Turnstile verification, enter password, and log in.")
-            print(f"  Username: {username}")
+            # Wait for Turnstile to pass, then click Log In
+            await asyncio.sleep(2)
+            for _attempt in range(15):
+                try:
+                    disabled = await page.evaluate(
+                        'document.querySelector("#btn_submitCredentials")'
+                        '?.getAttribute("aria-disabled")'
+                    )
+                    if disabled != "true":
+                        await page.click("#btn_submitCredentials", force=True)
+                        print("  Clicked Log In.")
+                        break
+                except:
+                    pass
+                await asyncio.sleep(2)
+            else:
+                print("  Log In button stayed disabled. Click it manually.")
 
             for i in range(MFA_TIMEOUT // 3):
                 await asyncio.sleep(3)
@@ -114,8 +132,15 @@ async def download_elevations(
                 await context.close()
                 return None
 
-        # Navigate to accounts page to get CSRF token
+        # Let the session fully establish before navigating
+        await asyncio.sleep(5)
+
+        # Navigate to dashboard first (always works after login)
         print("  Fetching CSRF token...")
+        await page.goto(DASHBOARD_URL, wait_until="domcontentloaded", timeout=30_000)
+        await asyncio.sleep(3)
+
+        # Then to accounts page for CSRF
         await page.goto(ACCOUNTS_URL, wait_until="domcontentloaded", timeout=30_000)
         await asyncio.sleep(3)
 
