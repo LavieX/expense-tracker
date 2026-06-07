@@ -1,0 +1,8 @@
+issue_prefix: exp
+issue-prefix: exp
+dolt.auto-start: false
+export.auto: false
+gc.endpoint_origin: inherited_city
+gc.endpoint_status: verified
+
+sync.remote: "git+ssh://git@github.com/LavieX/expense-tracker.git"
