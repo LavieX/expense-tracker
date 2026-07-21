@@ -210,7 +210,7 @@ class ClaudeCodeAdapter:
                     "claude",
                     "--print",  # Output only, no interactive mode
                     "--model", self.model,
-                    "--max-turns", "1",
+                    "--max-turns", "3",
                     "-p", prompt,
                 ],
                 capture_output=True,
