@@ -700,6 +700,128 @@ MCGUCKIN = "Home & Garden:Home Improvement"
 # Target: Electronics
 "GEMS Wireless Over-Ear Headphones" = "Shopping:Electronics"
 
+# ============================================================
+# Dana — April/May 2026 report categorizations (2026-06-07)
+# Authored from direct review of every uncategorized merchant.
+# Subcategories mirror the working taxonomy in prior months' output.
+# ============================================================
+
+# --- Home improvement / remodel / materials / services ---
+# NOTE: ROOTS & SHOOTS and QUALITY POOLS override the greedy "S & S" gas rule
+# (substring "s & s" inside "rootS & Shoots" / "poolS & SPas"). Both are
+# home-project services, not fuel. Matching is on the RAW merchant string, so
+# the key must avoid "&": Chase HTML-encodes it as "&amp;" ("S &amp; S" also
+# exists as a gas rule), and a literal-"&" override would silently miss the
+# encoded merchant. "QUALITY POOLS" (no "&") matches both encodings, longest-wins.
+"ROOTS & SHOOTS" = "Home & Garden:Garden & Lawn"
+"QUALITY POOLS" = "Home & Garden:Home Services"
+"BEST PEST WILDLIFE" = "Home & Garden:Home Services"
+"COLORADO MATERIALS" = "Home & Garden:Home Improvement"
+"Urban Forest Mil" = "Home & Garden:Home Improvement"
+"BEES AIR DUCT" = "Home & Garden:Home Services"
+"KJ THOMAS MECHANICAL" = "Home & Garden:Home Services"
+"ACE HARDWARE" = "Home & Garden:Home Improvement"
+"SIGNATURE HARDWARE" = "Home & Garden:Home Improvement"
+"FILTERBUY" = "Home & Garden:Maintenance & Repairs"
+"SP STARBOND" = "Home & Garden:Home Improvement"
+
+# --- Furniture & decor / home goods ---
+"RUGGABLE" = "Home & Garden:Furniture & Decor"
+"REJUVENATION" = "Home & Garden:Furniture & Decor"
+"WAYFAIR" = "Home & Garden:Furniture & Decor"
+"WESTELM" = "Home & Garden:Furniture & Decor"
+"BLINDS.COM" = "Home & Garden:Furniture & Decor"
+"WORLD MARKET" = "Home & Garden:Furniture & Decor"
+"JUNIPER GOODS" = "Home & Garden:Furniture & Decor"
+"REFINEDGOOD" = "Home & Garden:Furniture & Decor"
+"Creative Framing" = "Home & Garden:Furniture & Decor"
+
+# --- Healthcare / wellness ---
+"KINDHEARTED" = "Healthcare:Therapy"
+"BLUE HERON NATURAL" = "Healthcare:Doctor"
+"HEALTH IMAGES" = "Healthcare:Medical"
+"BOULDER RADIOLOG" = "Healthcare:Medical"
+"INTEGRATED DERMATOLOGY" = "Healthcare:Doctor"
+"FORWARD HEALING" = "Healthcare:Wellness"
+"BLUE SKIES MASSAGE" = "Healthcare:Wellness"
+# NAMASTEM: user-confirmed wellness (a "Namaste-" yoga/healing center), NOT a gym.
+# One-time $1,197 (Apr 2026); Chase's own merchant category was "Education"
+# (a teacher-training / retreat / wellness program, not a recurring fitness membership).
+"NAMASTEM" = "Healthcare:Wellness"
+"PROFESSIONAL SLEEP" = "Healthcare:Medical"
+"TABLE MOUNTAIN FOOT" = "Healthcare:Doctor"
+
+# --- Personal care / beauty / spa ---
+"AlchemyFaceBar" = "Personal Care:Beauty/Spa"
+"RADIANT BOTANIC" = "Personal Care:Beauty/Spa"
+"LONGMONT BARBER" = "Personal Care:Haircut/Barber"
+"MAIN STREET TATTOO" = "Personal Care:Beauty/Spa"
+
+# --- Kids ---
+"WINNERS CIRCLE LONGMONT" = "Kids:Activities"
+"ZAPTOYS" = "Kids:Toys"
+"BRICKVIBE" = "Kids:Toys"
+
+# --- Food & dining ---
+"MOUNTAIN FOUNTAIN" = "Food & Dining:Restaurants"
+"BRICKSCAPE" = "Food & Dining:Restaurants"
+"OG BURGERS" = "Food & Dining:Restaurants"
+"SUSHI ZANMAI" = "Food & Dining:Restaurants"
+"MODERN MARKET" = "Food & Dining:Restaurants"
+"STABLE BAR" = "Food & Dining:Restaurants"
+"HIPPOPS" = "Food & Dining:Restaurants"
+"Atomic Cowboy" = "Food & Dining:Restaurants"
+"DEATH &amp; COMPANY" = "Food & Dining:Restaurants"
+"ABO'S" = "Food & Dining:Restaurants"
+"RED ROCK COFFEE" = "Food & Dining:Coffee"
+"CAFE #65141" = "Food & Dining:Coffee"
+"PDQ FOOD AND FUEL" = "Food & Dining:Fast Food"
+
+# --- Fitness / sports ---
+"BUZZ LAGREE" = "Health & Fitness:Gym/Classes"
+"PURE HOCKEY" = "Health & Fitness:Hockey"
+"PLAY IT AGAIN" = "Shopping:Sporting Goods"
+
+# --- Entertainment / subscriptions / events ---
+"LiveBarn" = "Entertainment:Subscriptions"
+"Sling TV" = "Entertainment:Subscriptions"
+"AQ DENVER ONLINE" = "Entertainment:Events"
+"wheelhouseclay" = "Entertainment:Events"
+
+# --- Shopping: clothing / shoes / books / electronics ---
+"DSW" = "Shopping:Clothing"
+"FAMOUS FOOTWEAR" = "Shopping:Clothing"
+"Marine Layer" = "Shopping:Clothing"
+"SOLE ONLINE" = "Shopping:Clothing"
+"PAPERSOURCE" = "Shopping:Books"
+"BESTBUYCOM" = "Shopping:Electronics"
+
+# --- Gifts & flowers ---
+"FLOWER BIN" = "Gifts & Charity:Flowers"
+
+# --- Travel ---
+"THE RAMBLE HOTEL" = "Travel:Hotel/Lodging"
+
+# --- Business (Colleen — Home Craft Design / photography) ---
+"MIKESCAMERA" = "Business:Photography"
+"INNOVATIVE FOTO" = "Business:Photography"
+"RB GRAPHICS" = "Business:Expenses"
+
+# --- Transportation ---
+"AUTOZONE" = "Transportation:Service & Maintenance"
+"EXACTMATS" = "Transportation:Service & Maintenance"
+"AQ DENVER PARKING" = "Transportation:Parking"
+
+# --- Internal transfers (loan draw — excluded from spend) ---
+"From Loan" = "Miscellaneous:Transfers"
+
+# --- Lower-confidence best-guesses; flagged for user review in report ---
+# (NAMASTEM moved to Healthcare:Wellness above — user-confirmed, no longer a guess.)
+"BLUEPRINT" = "Housing:Remodel"
+"SAVIORY" = "Shopping:General"
+"DEPARKATRE" = "Shopping:Clothing"
+"PMUSA 951095" = "Transportation:Parking"
+
 [learned_rules]
 # System-managed rules from the learn command. Do not hand-edit.
 # Same format as user_rules.

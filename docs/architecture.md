@@ -1,463 +1,514 @@
-# Expense Tracker v3 -- Architecture
+# Expense Tracker v3 — Architecture
+
+*Last updated: 2026-07 — rewritten to match the implemented system. The
+original MVP design (and its review changelog) is preserved in git history;
+ADRs below note where the implementation superseded the original decisions.*
 
 ## 1. System Overview
 
-Expense Tracker v3 is a Python CLI tool that transforms raw bank CSV exports into a categorized monthly expense report. It replaces v2's 8-10 command workflow with a single-command pipeline, maintains a learnable knowledge base of merchant-to-category mappings, and keeps the codebase under ~1,500 lines.
+Expense Tracker v3 is a Python CLI that transforms raw bank CSV exports into a
+categorized monthly expense report, pushes results to Google Sheets, and
+learns from user corrections. Around the core pipeline sit three automation
+layers: bank CSV download (Playwright), retailer/Venmo enrichment (Playwright
+scrapers writing a local cache), and Google Sheets sync.
+
+The codebase has grown past the original ~1,500-line MVP target to roughly
+9,300 lines — the bulk of the growth is browser automation
+(`enrichment/target.py` alone is ~2,600 lines of selector engineering) and the
+download/enrichment/sheets integrations. The core pipeline modules remain
+small and follow the original design principles.
 
 ### High-Level Data Flow
 
 ```
-Bank CSVs (Chase, Capital One, Elevations)
-    |
-    v
-[ parse ] -- per-bank parser normalizes to Transaction
-    |
-    v
-[ deduplicate ] -- deterministic transaction IDs, drop duplicates
-    |
-    v
-[ detect_transfers ] -- match checking debits to CC credits, flag pairs
-    |
-    v
-[ enrich ] -- look up cached enrichment data, split if available
-    |
-    v
-[ categorize ] -- tier 1: rule matching, tier 2: LLM fallback
-    |
-    v
-[ export ] -- write monthly CSV, print summary
+Bank websites ──(expense download: Playwright)──> input/<account>/*.csv
+                                                        |
+                                                        v
+                                            [ 1. parse ]  per-bank parser -> Transaction
+                                                        |
+                                            [ 1b. filter to target month ]
+                                                        |
+                                            [ 1c. exclude ]  salary/income patterns
+                                                        |
+                                            [ 2. deduplicate ]  deterministic IDs
+                                                        |
+                                            [ 3. detect_transfers ]  checking debit <-> CC credit
+                                                        |
+Amazon/Target/Venmo ──(expense enrich)──> enrichment-cache/{txn_id}.json
+                                                        |
+                                            [ 4. enrich ]  cache lookup, split line items
+                                                        |
+                                            [ 4b. tag sources ]  Amazon / Target
+                                                        |
+                                            [ 5. categorize (rules) ]  longest substring match
+                                                        |
+                                            [ 6. detect recurring ]  history scan
+                                                        |
+                                            [ 7. categorize (LLM) ]  Claude, batch (CLI layer)
+                                                        |
+                                            [ 8. export ]  output/YYYY-MM.csv + summary
+                                                        |
+                                                        v
+                                        (expense push) Google Sheets (month upsert)
+                                                        |
+                              user corrects in Sheets/CSV -> (expense learn) -> rules.toml
 ```
 
 ### Design Principles
 
-1. **Pipeline, not framework.** Each stage is a pure function over a list of transactions. No inversion of control, no event bus. Data flows in one direction.
-2. **Partial failure over total failure.** Every stage processes what it can and reports what it could not. The pipeline never halts on a single bad row or an unavailable LLM.
-3. **Knowledge base is the product.** The TOML rule files are the most valuable artifact. They are human-readable, version-controlled, and survive refactors.
-4. **Flat files are the system of record.** Monthly CSVs are self-contained and human-readable. No database required to view your own data.
+1. **Pipeline, not framework.** Each stage is a pure function over a list of
+   transactions. No inversion of control, no event bus. Data flows in one
+   direction.
+2. **Partial failure over total failure.** Every stage processes what it can
+   and reports what it could not. The pipeline never halts on a single bad row
+   or an unavailable LLM.
+3. **Knowledge base is the product.** The TOML rule files are the most
+   valuable artifact. They are human-readable, version-controlled, and survive
+   refactors.
+4. **Flat files are the system of record.** Monthly CSVs are self-contained
+   and human-readable. No database required to view your own data.
+5. **Real data never enters version control.** `config.toml`, `input/`,
+   `output/`, `enrichment-cache/`, and `.auth/` are gitignored. Tests run
+   against synthetic fixtures only.
 
 ---
 
 ## 2. Module Structure
 
-All application code lives under `src/expense_tracker/`. Target: ~1,500 lines total, ~300 lines per module.
+All application code lives under `src/expense_tracker/`.
 
 ```
-src/expense_tracker/
-    __init__.py          # Package root, version
-    cli.py               # Click command definitions (~200 lines)
-    pipeline.py          # Orchestrates the processing pipeline (~150 lines)
-    models.py            # Data classes: Transaction, Rule, Config (~200 lines)
+src/expense_tracker/                 (~9,300 lines total)
+    __init__.py            # Package root, version
+    cli.py                 # Click commands: process, learn, enrich, push, download, init (~850)
+    pipeline.py            # Stage orchestration (~610)
+    models.py              # Dataclasses + transaction ID hashing (~285)
+    config.py              # TOML load/save, init scaffolding (~460)
+    categorizer.py         # Rule matching, AI categorize driver, learn workflow (~420)
+    llm.py                 # ClaudeCodeAdapter / AnthropicAdapter / NullAdapter (~320)
+    recurring.py           # Recurring-merchant auto-detection (~140)
+    export.py              # Monthly CSV writer + stdout summary (~240)
+    sheets.py              # Google Sheets push with month upsert (~200)
     parsers/
-        __init__.py      # Parser registry and base protocol (~50 lines)
-        chase.py         # Chase credit card CSV parser (~100 lines)
-        capital_one.py   # Capital One credit card CSV parser (~100 lines)
-        elevations.py    # Elevations Credit Union CSV parser (~100 lines)
-    categorizer.py       # Rule matching + LLM fallback (~250 lines)
-    llm.py               # LLM adapter interface + Anthropic impl (~150 lines)
-    config.py            # TOML loading/writing, path resolution (~150 lines)
-    export.py            # CSV output writer + summary printer (~100 lines)
+        __init__.py        # Parser registry (PARSERS dict, get_parser)
+        chase.py           # Chase credit card CSV parser
+        capital_one.py     # Capital One credit card CSV parser
+        elevations.py      # Elevations Credit Union checking parser
+    enrichment/
+        __init__.py        # EnrichmentProvider protocol, registry, result types
+        cache.py           # Enrichment cache read/write (JSON)
+        amazon.py          # Amazon order history scraper, multi-account (~980)
+        target.py          # Target.com order history scraper (~2,650)
+        venmo.py           # Venmo statement/feed scraper (~540)
+    download/
+        __init__.py        # Package docs: session persistence strategy
+        base.py            # Shared helpers: KeePass/KPX credential lookup, auth dirs
+        chase.py           # Chase CSV downloader (Playwright)
+        capital_one.py     # Capital One CSV downloader (Playwright)
+        elevations.py      # Elevations CSV downloader (Playwright)
 ```
 
-Estimated total: ~1,550 lines (within tolerance of the ~1,500 target).
+### Dependency Rules
 
-### Dependency Graph
-
-```
-cli.py
-  |
-  v
-pipeline.py
-  |---> parsers/ (parse stage)
-  |---> models.py (Transaction, used everywhere)
-  |---> categorizer.py (categorize stage)
-  |       |---> llm.py (tier 2 fallback)
-  |       |---> config.py (loads rules.toml)
-  |---> export.py (output stage)
-  |---> config.py (loads config.toml, categories.toml)
-```
-
-Key rule: `models.py` has zero internal imports. Everything depends on it; it depends on nothing. `config.py` depends only on `models.py`. Parsers depend only on `models.py`. This keeps the dependency graph acyclic and shallow.
+- **`models.py` has zero internal imports.** Everything depends on it; it
+  depends on nothing.
+- `config.py`, parsers, and `categorizer.py` depend only on `models.py`.
+- `pipeline.py` imports parsers, models, and recurring. It deliberately does
+  **not** import `llm.py` — the LLM tier is driven by the CLI layer (see
+  Section 8).
+- `cli.py` is the composition root: it loads config, selects the LLM adapter,
+  runs the pipeline, invokes LLM categorization, exports, and prints the
+  summary.
+- The dependency graph is acyclic and shallow by construction.
 
 ---
 
-## 3. Data Flow
+## 3. Pipeline Stages
 
-Each pipeline stage receives a list of `Transaction` objects and returns a `StageResult` (see Section 9) containing the (possibly modified) list plus any warnings and errors from that stage. Stages are composed in `pipeline.py`, which accumulates warnings and errors across all stages for the final summary.
+Each stage receives a list of `Transaction` objects and returns a
+`StageResult` containing the (possibly modified) list plus warnings and
+errors. `pipeline.run()` composes the stages and accumulates everything into
+a `PipelineResult`.
 
 ### Stage 1: Parse
 
-**Input:** File paths to bank CSV files, grouped by account config.
-**Output:** `list[Transaction]` with all fields populated except `category` and `subcategory`.
+Discovers CSV files per account (glob `*.csv`, case-insensitive,
+non-recursive, skipping names starting with `.`, `~`, `_`), dispatches to the
+registered parser, concatenates results. Parsers validate expected columns
+(fail the file if missing), skip malformed rows with warnings, and fail the
+whole file if >10% of rows are malformed. Parsers return **all rows** — they
+do not filter by month.
 
-Each parser implements the `Parser` protocol (see Section 5). The parser registry in `parsers/__init__.py` maps parser names from config to parser functions. Each parser:
+### Stage 1b: Filter to Target Month
 
-1. Opens the CSV with `csv.DictReader`.
-2. Validates that expected columns exist (fail the file if not).
-3. Iterates rows, skipping malformed ones (with warnings). If >10% of rows are malformed, fails the entire file.
-4. For each valid row: extracts date, merchant, amount (applying sign conventions), and description. Generates the deterministic transaction ID.
-5. Returns a list of `Transaction` objects for **all rows** in the file (no date filtering).
+The pipeline (not parsers) owns the date boundary: keeps transactions whose
+`date` falls within the `--month` argument.
 
-Transactions from all accounts are concatenated into a single list. The pipeline then filters this combined list to only transactions whose `date` falls within the target month. Parsers do not receive or apply month filtering -- they return everything, and the pipeline owns the date boundary logic. This keeps parsers simple and stateless.
+### Stage 1c: Exclude
+
+Removes transactions whose merchant matches any `[exclude].patterns` entry in
+`rules.toml` (case-insensitive substring). Used for salary, income, and
+internal noise that should never reach reports. Exclusions are reported as a
+warning count.
 
 ### Stage 2: Deduplicate
 
-**Input:** `list[Transaction]` (possibly containing duplicates from overlapping CSV downloads or re-runs).
-**Output:** `list[Transaction]` with duplicates removed.
-
-Deduplication is by `transaction_id`. When duplicates are found, keep the first occurrence. Log the count of duplicates removed.
+By `transaction_id`; first occurrence wins; count reported.
 
 ### Stage 3: Detect Transfers
 
-**Input:** `list[Transaction]`.
-**Output:** `list[Transaction]` with `is_transfer=True` on matched pairs.
-
-Algorithm:
-1. Collect all checking account debits that match transfer keywords (`PAYMENT`, `AUTOPAY`, `ONLINE PAYMENT`, etc., configurable in `config.toml`).
-2. For each, search for a matching credit card credit within the configurable date window (default: 5 days) with the same absolute amount.
-3. Mark both sides of the match as `is_transfer=True`.
-
-Transfers remain in the transaction list (for auditability) but are excluded from the output CSV by the export stage.
+Checking-account debits matching `transfer_detection.keywords` (merchant or
+description, case-insensitive) are paired with credit-card credits of the
+same absolute amount within `date_window_days` (default 5). Both sides get
+`is_transfer=True`. Transfers stay in the list for auditability and are
+filtered at export.
 
 ### Stage 4: Enrich
 
-**Input:** `list[Transaction]`.
-**Output:** `list[Transaction]`, possibly expanded (one transaction may become multiple split line items).
+Pure cache lookup — **this stage never fetches**. For each transaction it
+looks for `enrichment-cache/{transaction_id}.json` (written out-of-band by
+`expense enrich`). If found, the transaction is replaced by split line items:
 
-1. For each transaction, look up its `transaction_id` in the enrichment cache directory (`enrichment-cache/`).
-2. If cached enrichment data exists (a JSON file keyed by transaction ID), replace the transaction with split line items. Each split gets:
-   - ID: `{parent_id}-{n}` (1-indexed numeric suffix)
-   - `split_from`: the parent transaction ID
-   - Item-level merchant/description from enrichment data
-   - Amount from enrichment item prices
-3. Validate: split amounts must sum to the original transaction amount (within $0.01 tolerance for rounding). If validation fails, keep the original unsplit transaction and warn.
-4. If no enrichment data exists, pass the transaction through unchanged.
+- Split ID: `{parent_id}-{n}` (1-indexed), `split_from` = parent ID
+- Merchant: the retailer tag (e.g. `Amazon`, `Target`) — the product name
+  goes in `description` so rules can match product-specific text
+- Validation: split amounts must sum to the original within $0.01, else the
+  original is kept with a warning
 
-This stage is a consumer of enrichment data, not a producer. Production of enrichment data is handled by the separate `expense enrich` command (Phase 2). Note: when the requirements describe transactions as "eligible for retailer enrichment," this means the transaction has cached enrichment data on disk -- it does not mean the pipeline triggers a fetch. The `enrich` stage is a pure cache lookup; all data acquisition happens out-of-band via `expense enrich`.
+### Stage 4b: Tag Sources
 
-### Stage 5: Categorize
+Transactions not tagged by enrichment get `source = "Amazon"` / `"Target"`
+from merchant-name pattern matching (`AMAZON`/`AMZN`/`AMZ`, `TARGET`).
+`source` flows into the output CSV and the LLM prompt.
 
-**Input:** `list[Transaction]` (uncategorized or partially categorized).
-**Output:** `list[Transaction]` with `category` and `subcategory` populated where possible.
+### Stage 5: Categorize (Rules)
 
-Two-tier system (see Section 8 for full detail):
-1. **Tier 1 -- Rule matching:** Apply merchant-to-category rules from `rules.toml`. Substring match, case-insensitive, longest match wins. User rules checked before learned rules.
-2. **Tier 2 -- LLM fallback:** Batch all still-uncategorized transactions into a single LLM call. Apply suggestions to transactions. Do NOT write suggestions to rules.toml (that happens via `learn`).
-3. Transactions that remain uncategorized (no rule match, LLM unavailable or returned nothing) get `category="Uncategorized"`.
+Applies `categorizer.match_rules` to every uncategorized transaction (see
+Section 8). Rule matches also set `is_recurring` when the matched rule
+declares it.
 
-### Stage 6: Export
+### Stage 6: Detect Recurring
 
-**Input:** `list[Transaction]` (fully processed).
-**Output:** Monthly CSV file written to `output/YYYY-MM.csv`. Summary printed to stdout.
+`recurring.detect_recurring` scans historical `output/*.csv` files for
+merchants appearing in 3+ distinct months with amounts within 20% variance
+(median-based). Matching transactions are auto-flagged `is_recurring=True`
+unless a rule already set recurring status — **explicit rules always win**.
+Failure of this stage degrades to a warning, never an error.
 
-1. Filter out transactions where `is_transfer=True`.
-2. Sort by date, then by institution, then by amount.
-3. Write CSV with the fixed column schema (see Section 4). The output is designed to be consumed in Google Sheets via import, where the user builds pivot tables for analysis. The column schema, sort order, and well-structured tabular format are optimized for this workflow.
-4. Print processing summary: total transactions, total spending, categorization rate, top uncategorized merchants, spending by top-level category.
+### Stage 7: Categorize (LLM) — CLI Layer
+
+Not part of `pipeline.run()`. After the pipeline returns, `cli.py` calls
+`categorizer.categorize()` with the selected LLM adapter, which sends **all**
+still-uncategorized transactions to the LLM in batches (Section 8).
+
+### Stage 8: Export
+
+Filters out transfers, sorts by (date, institution, amount), writes
+`output/YYYY-MM.csv` (overwrites), prints the summary: per-institution
+counts, transfer count, enrichment stats, categorization rate, top
+uncategorized merchants, spending by category, and accumulated
+warnings/errors.
 
 ---
 
 ## 4. Data Model
 
-Defined in `models.py`. All data structures are `@dataclass` classes.
+Defined in `models.py`. All structures are `@dataclass` classes.
 
 ### Transaction
-
-The core data object that flows through every pipeline stage.
 
 ```python
 @dataclass
 class Transaction:
-    transaction_id: str          # Deterministic hash, 12-16 hex chars
+    transaction_id: str          # Deterministic hash, 12 hex chars
     date: date                   # Transaction date (not post date)
     merchant: str                # Normalized merchant/payee name
     description: str             # Original description from bank CSV
     amount: Decimal              # Negative = expense, positive = refund
-    institution: str             # e.g., "chase", "capital_one", "elevations"
-    account: str                 # Account identifier from config
-    category: str                # Top-level category or "Uncategorized"
-    subcategory: str             # Subcategory or empty string
-    is_transfer: bool            # True if detected as a transfer
-    is_return: bool              # True if amount > 0
-    split_from: str              # Parent transaction_id, or empty string
-    source_file: str             # Path to the source CSV (for debugging)
+    institution: str             # "chase", "capital_one", "elevations"
+    account: str                 # Account display name from config
+    category: str = "Uncategorized"
+    subcategory: str = ""
+    is_transfer: bool = False
+    is_return: bool = False      # True if amount > 0
+    is_recurring: bool = False   # Subscription/bill flag (rule or auto-detect)
+    split_from: str = ""         # Parent transaction_id for split line items
+    source: str = ""             # Retailer tag: "Amazon", "Target", or ""
+    source_file: str = ""        # Debug only; never exported
 ```
 
 ### Transaction ID Generation
 
 ```python
-import hashlib
-
-def generate_transaction_id(
-    institution: str,
-    txn_date: date,
-    merchant: str,
-    amount: Decimal,
-    row_ordinal: int,
-) -> str:
-    """Deterministic transaction ID from the components that define uniqueness."""
-    raw = f"{institution}|{txn_date.isoformat()}|{merchant.strip().upper()}|{amount}|{row_ordinal}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:12]
+raw = f"{institution}|{date.isoformat()}|{merchant.strip().upper()}|{amount}|{row_ordinal}"
+id = hashlib.sha256(raw.encode()).hexdigest()[:12]
 ```
 
-Components: institution name (lowercase), ISO date, uppercased/stripped merchant string, amount as string, 0-based row ordinal within the source CSV file. SHA-256, truncated to 12 hex characters.
+Deterministic; stable across re-runs and overlapping downloads. Row ordinal
+(0-based within the source CSV) disambiguates identical same-day purchases.
+**Compatibility boundary:** changing any component invalidates IDs in
+historical output and enrichment caches.
 
-### Output CSV Column Schema
+### Output CSV Schema
 
-Fixed column order, written by `export.py`:
+Fixed column order (`export.CSV_COLUMNS`):
 
 ```
-transaction_id, date, merchant, description, amount, institution, account,
-category, subcategory, is_return, split_from
+transaction_id, date, month, merchant, description, amount, institution,
+account, category, subcategory, is_return, is_recurring, split_from, source
 ```
 
-`is_transfer` is not in the output (transfers are filtered out). `source_file` is not in the output (internal debugging field).
+`month` (YYYY-MM) denormalizes the date for Sheets pivoting and drives the
+Sheets month-upsert. `is_transfer` and `source_file` are intentionally
+excluded. The Google Sheets push uses the same column order.
 
-### MerchantRule
+### Other Models
 
 ```python
+@dataclass
+class StageResult:                       # Universal stage return type
+    transactions: list[Transaction]
+    warnings: list[str]
+    errors: list[str]
+
 @dataclass
 class MerchantRule:
-    pattern: str                 # Substring to match (case-insensitive)
-    category: str                # Target category
-    subcategory: str             # Target subcategory, or empty string
-    source: str                  # "user" or "learned"
-```
+    pattern: str                         # Case-insensitive substring
+    category: str
+    subcategory: str = ""
+    recurring: bool = False              # Marks merchant as recurring charge
+    source: str = "user"                 # "user" | "learned"
 
-### AccountConfig
+@dataclass
+class LearnResult:
+    added: int; updated: int; skipped: int
+    rules: list[MerchantRule]
 
-```python
 @dataclass
 class AccountConfig:
-    name: str                    # Display name, e.g., "Chase Credit Card"
-    institution: str             # Internal key, e.g., "chase"
-    parser: str                  # Parser name, e.g., "chase"
-    account_type: str            # "credit_card" or "checking"
-    input_dir: str               # Relative path, e.g., "input/chase"
-```
+    name: str; institution: str; parser: str
+    account_type: str                    # "credit_card" | "checking"
+    input_dir: str
 
-### AppConfig
+@dataclass
+class AmazonAccountConfig:
+    label: str = "default"               # Per-account browser session label
 
-```python
+@dataclass
+class SheetsConfig:
+    credentials_file: str                # Service account JSON path
+    spreadsheet_id: str
+    worksheet_name: str = "Raw Data"
+
 @dataclass
 class AppConfig:
     accounts: list[AccountConfig]
-    output_dir: str              # Default: "output"
-    enrichment_cache_dir: str    # Default: "enrichment-cache"
-    transfer_keywords: list[str] # Default: ["PAYMENT", "AUTOPAY", ...]
-    transfer_date_window: int    # Default: 5 (days)
-    llm_provider: str            # "anthropic" or "none"
-    llm_model: str               # e.g., "claude-sonnet-4-20250514"
-    llm_api_key_env: str         # Env var name, e.g., "ANTHROPIC_API_KEY"
+    output_dir: str = "output"
+    enrichment_cache_dir: str = "enrichment-cache"
+    transfer_keywords: list[str]         # ["PAYMENT", "AUTOPAY", ...]
+    transfer_date_window: int = 5
+    llm_provider: str = "anthropic"      # "anthropic" | "none" | other -> Claude Code
+    llm_model: str = "claude-sonnet-4-20250514"
+    llm_api_key_env: str = "ANTHROPIC_API_KEY"
+    amazon_accounts: list[AmazonAccountConfig]
+    sheets: SheetsConfig | None
+
+@dataclass
+class PipelineResult:
+    transactions: list[Transaction]
+    warnings: list[str]
+    errors: list[str]
 ```
 
 ---
 
 ## 5. Plugin Architecture
 
-### Parser Protocol
+### Parsers
 
-Each bank parser is a module in `src/expense_tracker/parsers/` that exposes a single function:
+Each parser module exposes:
 
 ```python
-from expense_tracker.models import Transaction, StageResult
-from decimal import Decimal
-from datetime import date
-from pathlib import Path
-
-def parse(file_path: Path, institution: str, account: str) -> StageResult:
-    """Parse a bank CSV file and return normalized Transaction objects.
-
-    Returns a StageResult. Skipped rows are reported as warnings.
-    If the file cannot be parsed at all (wrong format, >10% bad rows),
-    returns an empty transaction list with the error in StageResult.errors.
-    """
-    ...
+def parse(file_path: Path, institution: str, account: str) -> StageResult: ...
 ```
 
-### Parser Registry
+`parsers/__init__.py` maps names to functions in the `PARSERS` dict; account
+config references the name. **Adding a bank:** create the module, register in
+`PARSERS`, add a `[[accounts]]` entry — no other code changes. Parsers own
+merchant normalization (stripping bank prefixes, trailing reference numbers):
+learned rules match merchant strings verbatim, so stable normalized strings
+are a correctness requirement.
 
-`parsers/__init__.py` maintains a simple dict mapping parser names to parse functions:
+Sign convention is normalized by parsers: **negative = expense, positive =
+refund/credit**.
 
-```python
-from expense_tracker.parsers import chase, capital_one, elevations
+### LLM Adapters
 
-PARSERS: dict[str, Callable] = {
-    "chase": chase.parse,
-    "capital_one": capital_one.parse,
-    "elevations": elevations.parse,
-}
-
-def get_parser(name: str) -> Callable:
-    """Look up a parser by name. Raises KeyError if not found."""
-    return PARSERS[name]
-```
-
-### Adding a New Parser
-
-1. Create `src/expense_tracker/parsers/new_bank.py` implementing the `parse()` function.
-2. Import it in `parsers/__init__.py` and add it to the `PARSERS` dict.
-3. Add an account entry in `config.toml` referencing the parser name.
-
-No changes to `pipeline.py`, `categorizer.py`, or any other module. The `PARSERS` dict is the registration mechanism -- simple, explicit, no magic.
-
-### LLM Adapter Protocol
-
-Defined in `llm.py`:
+Protocol (`llm.py`):
 
 ```python
-from typing import Protocol
-
 class LLMAdapter(Protocol):
     def categorize_batch(
         self,
-        transactions: list[dict],    # [{merchant, description, amount, date}, ...]
-        categories: list[dict],       # [{name, subcategories: [...]}, ...]
-    ) -> list[dict]:                  # [{merchant, category, subcategory}, ...]
-        """Send a batch of transactions to the LLM for categorization."""
+        transactions: list[dict],   # {id, merchant, description, amount, date, source}
+        categories: list[dict],      # {name, subcategories}
+    ) -> list[dict]:                 # [{id, category, subcategory}] (merchant fallback ok)
         ...
 ```
 
-The Anthropic implementation (`AnthropicAdapter`) in the same file:
-- Reads the API key from the environment variable specified in config.
-- Constructs a single prompt containing all uncategorized transactions and the category taxonomy.
-- Sends one HTTP POST to the Anthropic Messages API via `httpx`.
-- Parses the structured response (JSON in the LLM output).
-- Returns a list of category suggestions.
+Three implementations:
 
-If the API call fails (network error, auth error, rate limit), it returns an empty list. The categorizer treats this as "LLM unavailable" and leaves those transactions uncategorized.
+| Adapter | Mechanism | Use |
+|---------|-----------|-----|
+| `ClaudeCodeAdapter` | Shells out to `claude --print --model sonnet --max-turns 3` | **Primary/default** — uses the user's Claude Max subscription, no API key |
+| `AnthropicAdapter` | Direct `httpx` POST to the Messages API | Fallback for headless/CI; requires `ANTHROPIC_API_KEY` credits |
+| `NullAdapter` | Returns `[]` | `--no-llm` mode |
 
-### Enrichment Source Interface (Phase 2)
+All adapters share `_build_prompt` (household context + taxonomy + batch) and
+`_parse_response` (extracts and validates the JSON array). Batches of 80
+transactions; 120s subprocess timeout. Any failure returns an empty list —
+the categorizer treats this as "LLM unavailable" and leaves transactions
+uncategorized with a warning.
 
-Not built in MVP, but the interface is defined for forward compatibility:
+### Enrichment Providers
+
+Protocol (`enrichment/__init__.py`):
 
 ```python
 class EnrichmentSource(Protocol):
     def fetch(self, transactions: list[Transaction]) -> dict[str, list[dict]]:
-        """Fetch enrichment data for matching transactions.
-
-        Returns: {transaction_id: [{item_name, amount, category_hint}, ...]}
-        """
-        ...
+        """Returns {transaction_id: [{item_name, amount, category_hint}, ...]}"""
 ```
 
-Each enrichment source is a separate module. Enrichment data is written to `enrichment-cache/{transaction_id}.json` by the `expense enrich` command and read by the pipeline's enrich stage.
+Providers (Amazon, Target, Venmo) scrape order history via Playwright, match
+orders to bank transactions (date proximity + amount matching, with tolerance
+for e.g. Target RedCard 5% discounts), and write cache files. The pipeline's
+enrich stage is a pure consumer of the cache.
+
+### Cache Format
+
+`enrichment-cache/{transaction_id}.json`:
+
+```json
+{
+  "transaction_id": "abc123...",
+  "source": "amazon",
+  "order_id": "...",
+  "matched_at": "...",
+  "retailer": "Amazon",
+  "items": [
+    {"merchant": "...", "description": "...", "amount": "-30.00"}
+  ]
+}
+```
+
+The pipeline reads only `items` (+ `retailer` for source tagging); extra
+metadata keys are ignored, keeping the format backward-compatible.
+
+### Bank Downloaders
+
+`download/` modules automate bank CSV export via Playwright with **persistent
+browser sessions** in `.auth/<bank>/state.json`:
+
+1. First run: visible browser, user completes CAPTCHA/MFA manually, session
+   saved.
+2. Subsequent runs: saved session reused (headless possible); expiry falls
+   back to interactive login.
+
+Credentials come from KeePass — `download/base.py` tries a running **KPX**
+credential server first, then direct `pykeepass` (path + master password via
+`--keepass-file`/`KEEPASS_FILE`, `--keepass-password`/`KEEPASS_PASSWORD`).
+Credentials are never logged or stored by the app.
 
 ---
 
 ## 6. CLI Design
 
-CLI framework: **Click**. Click is chosen over Typer for its mature ecosystem, explicit decorator-based command definitions, and broader compatibility. The CLI entry point is `expense` (defined in `pyproject.toml` as `project.scripts`).
-
-### Commands
+Framework: **Click**. Entry point `expense` (`pyproject.toml [project.scripts]`).
 
 ```
-expense process --month YYYY-MM [--verbose] [--debug]
-expense learn --original PATH --corrected PATH [--verbose]
-expense enrich --month YYYY-MM --source NAME [--verbose]
-expense init [--dir PATH]
+expense process  --month YYYY-MM [--no-llm] [--verbose] [--debug]
+expense learn    --original PATH --corrected PATH [--verbose]
+expense enrich   --month YYYY-MM --source amazon|target|venmo [--headless] [--verbose] [--debug]
+expense push     [--month YYYY-MM | --all] [--verbose]
+expense download --month YYYY-MM [--source chase|capital-one|elevations|all]
+                 [--auth BANK] [--headless] [--keepass-file PATH] [--keepass-password PW]
+expense init     [--dir PATH]
 ```
 
-#### `expense process`
+### `expense process`
 
-The primary command. Runs the full pipeline for a given month.
+The primary command:
 
-```
-expense process --month 2026-01
-```
+1. Load `config.toml`, `categories.toml`, `rules.toml` (+ exclude patterns).
+2. Select LLM adapter: `--no-llm`/`provider="none"` → NullAdapter;
+   `provider="anthropic"` → AnthropicAdapter; **anything else →
+   ClaudeCodeAdapter (default)**.
+3. `pipeline.run(...)` → stages 1–6.
+4. `categorizer.categorize(...)` with the LLM adapter → stage 7.
+5. `export(...)` + `print_summary(...)`.
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--month` | `YYYY-MM` | Required | Target month to process |
-| `--no-llm` | flag | False | Skip LLM categorization (cache-only) |
-| `--verbose` | flag | False | Detailed progress output |
-| `--debug` | flag | False | Developer-level diagnostics (full transaction records, matching details, LLM prompts/responses) |
+Month validation is strict (`YYYY-MM`, 01–12). Errors print to stderr with
+exit code 1; LLM failures degrade to warnings.
 
-Behavior:
-1. Load config from `config.toml`, `categories.toml`, `rules.toml`.
-2. For each configured account, discover CSV files in the account's input directory using these rules:
-   - Glob `*.csv` (case-insensitive) in the account's `input_dir`. Non-recursive (subdirectories are ignored).
-   - Exclude hidden files (names starting with `.`) and temp files (names starting with `~` or `_`).
-   - All matching files are passed to the parser. Since parsers return all rows and the pipeline filters by target month, there is no need for filename-based date filtering.
-3. Run the pipeline: parse -> filter to target month -> deduplicate -> detect transfers -> enrich -> categorize -> export.
-4. Write `output/YYYY-MM.csv`. Print summary to stdout.
+### `expense learn`
 
-If an output file already exists for the target month, overwrite it.
+Compares the pipeline's original output CSV with a user-corrected copy,
+indexed by `transaction_id`. For every changed category/subcategory:
 
-#### `expense learn`
+- User rule already covers the merchant → **skip** (never overwrite user rules)
+- Learned rule exists for the exact merchant pattern → update in place
+- Otherwise → append new learned rule
 
-The learning loop. Compares original output to user-corrected version.
+Writes only the `[learned_rules]` section of `rules.toml`; everything above
+it (comments, `[exclude]`, `[user_rules]`) is preserved verbatim. Prints
+added/updated/skipped counts.
 
-```
-expense learn --original output/2026-01.csv --corrected output/2026-01-corrected.csv
-```
+### `expense enrich`
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--original` | path | Required | Path to the pipeline's output CSV |
-| `--corrected` | path | Required | Path to the user-corrected CSV |
-| `--verbose` | flag | False | Show details of each learned rule |
+Runs the full pipeline parse path to build the transaction list, then invokes
+the selected provider:
 
-Behavior:
-1. Read both CSVs. Index by `transaction_id`.
-2. For each transaction where `category` or `subcategory` differs:
-   - Extract the merchant pattern and the corrected category.
-   - If a user rule already exists for this pattern, skip (do not overwrite user rules).
-   - If a learned rule exists, update it with the correction.
-   - If no rule exists, add a new learned rule.
-3. Write updated rules to the `[learned_rules]` section of `rules.toml`.
-4. Print a summary: N new rules added, N rules updated, N conflicts skipped.
+- **amazon**: multi-account (`[[enrichment.amazon]]` labels, separate browser
+  sessions per account); per-account stats in the summary
+- **target**: Playwright scrape of target.com order history; matches orders
+  to transactions by date proximity (±3 days) and amount (with RedCard
+  tolerance); skips gift-card-only orders
+- **venmo**: scrapes Venmo statements/feed, matches to bank transactions,
+  writes cache files
 
-#### `expense enrich` (Phase 2 -- not in MVP)
+### `expense push`
 
-Run enrichment for a given month and source.
+Pushes processed data to Google Sheets (service account auth):
 
-```
-expense enrich --month 2026-01 --source target
-```
+- `--month YYYY-MM`: **upsert** — reads the sheet, drops rows whose `month`
+  column matches, appends fresh rows, re-sorts by date, rewrites. Other
+  months untouched.
+- `--all` (or no flag): clears the sheet and rewrites every month CSV found
+  in `output/` (files matching `YYYY-MM.csv` only).
 
-Fetches item-level data for matching transactions and writes to `enrichment-cache/`. The pipeline's enrich stage reads from this cache.
+### `expense download`
 
-#### `expense init`
+Per-bank Playwright downloaders writing into each account's `input_dir`.
+`--auth BANK` runs an interactive login-only pass to (re)save the session
+without downloading.
 
-Initialize a new data directory with the standard structure.
+### `expense init`
 
-```
-expense init
-expense init --dir ~/expenses
-```
-
-Creates:
-- `config.toml` with default settings and example account entries
-- `categories.toml` with the default 18-category taxonomy
-- `rules.toml` with empty `[user_rules]` and `[learned_rules]` sections
-- `input/` directory
-- `output/` directory
-- `enrichment-cache/` directory
-
-If files/directories already exist, skip them (do not overwrite).
-
-### CLI-to-Pipeline Mapping
-
-```
-expense process  -->  pipeline.run(month, config)
-expense learn    -->  categorizer.learn(original_path, corrected_path, rules)
-expense init     -->  config.initialize(target_dir)
-expense enrich   -->  (Phase 2: enrichment_source.fetch + cache write)
-```
-
-The CLI layer (`cli.py`) handles argument parsing, config loading, and error display. It delegates all business logic to `pipeline.py`, `categorizer.py`, and `config.py`.
+Idempotent scaffolding: creates `input/{chase,capital-one,elevations}/`,
+`output/`, `enrichment-cache/`, and default `config.toml`, `categories.toml`,
+`rules.toml`. Never overwrites existing files.
 
 ---
 
 ## 7. Configuration
 
-Three TOML files, all in the project root directory.
+Three TOML files in the project root (`config.toml` is gitignored — see
+`config.toml.example` for a shareable template).
 
 ### config.toml
 
 ```toml
-# Expense Tracker v3 configuration
-
 [general]
 output_dir = "output"
 enrichment_cache_dir = "enrichment-cache"
@@ -467,402 +518,301 @@ keywords = ["PAYMENT", "AUTOPAY", "ONLINE PAYMENT", "PAYOFF"]
 date_window_days = 5
 
 [llm]
-provider = "anthropic"          # "anthropic" or "none"
+provider = "anthropic"          # "anthropic" (API) | "none" | anything else -> Claude Code subprocess
 model = "claude-sonnet-4-20250514"
-api_key_env = "ANTHROPIC_API_KEY"  # Name of env var containing the API key
+api_key_env = "ANTHROPIC_API_KEY"
 
-# Account definitions
 [[accounts]]
 name = "Chase Credit Card"
 institution = "chase"
 parser = "chase"
-account_type = "credit_card"
+account_type = "credit_card"    # or "checking"
 input_dir = "input/chase"
+# ... one per account
 
-[[accounts]]
-name = "Capital One Credit Card"
-institution = "capital_one"
-parser = "capital_one"
-account_type = "credit_card"
-input_dir = "input/capital-one"
+# Optional: multiple Amazon accounts, each with its own browser session
+# [[enrichment.amazon]]
+# label = "primary"
 
-[[accounts]]
-name = "Elevations Credit Union"
-institution = "elevations"
-parser = "elevations"
-account_type = "checking"
-input_dir = "input/elevations"
+# Optional: Google Sheets push
+# [sheets]
+# credentials_file = ".auth/google-service-account.json"
+# spreadsheet_id = "..."
+# worksheet_name = "Raw Data"
 ```
 
 ### categories.toml
 
-```toml
-# Category taxonomy -- the valid categories and subcategories
-
-[Housing]
-subcategories = ["Mortgage"]
-
-[Utilities]
-subcategories = ["Electric/Water/Internet", "Natural Gas", "Mobile Phone", "Television"]
-
-[Food & Dining]
-subcategories = ["Groceries", "Restaurant", "Fast Food", "Coffee", "Alcohol", "Delivery"]
-
-[Transportation]
-subcategories = ["Gas/Fuel", "Parking/Tolls", "Public Transit", "Rideshare", "Service & Maintenance", "Registration/DMV"]
-
-[Kids]
-subcategories = ["Clothing", "Supplies", "Activities", "Toys", "School", "Preschool", "Camps"]
-
-[Health & Fitness]
-subcategories = ["Gym/Classes", "Skiing", "Biking", "Hockey", "Race/Event Fees", "Equipment & Maintenance"]
-
-[Healthcare]
-subcategories = ["Doctor", "Dental", "Vision", "Pharmacy", "Therapy"]
-
-[Entertainment]
-subcategories = ["Tickets/Events", "Games", "Movies", "Subscriptions"]
-
-[Shopping]
-subcategories = ["Clothing", "Electronics", "Home Goods", "Books", "Jewelry"]
-
-[Home & Garden]
-subcategories = ["Maintenance & Repairs", "Furniture & Decor", "Appliances", "Garden & Lawn", "Tools & Hardware", "Home Services"]
-
-[Personal Care]
-subcategories = ["Haircut/Barber", "Beauty/Spa", "Cosmetics"]
-
-[Pets]
-subcategories = ["Food", "Vet", "Daycare/Boarding", "Grooming", "Supplies"]
-
-[Gifts & Charity]
-subcategories = ["Gifts", "Donations"]
-
-[Travel]
-subcategories = ["Flight", "Hotel/Lodging", "Rental Car/Transport", "Vacation/Activities", "Baggage/Fees"]
-
-[Education]
-subcategories = ["Tuition", "Books & Supplies", "Courses/Training"]
-
-[Insurance]
-subcategories = []
-
-[Business]
-subcategories = []
-
-[Miscellaneous]
-subcategories = []
-```
+18 top-level categories, each with a `subcategories` list (possibly empty):
+Housing, Utilities, Food & Dining, Transportation, Kids, Health & Fitness,
+Healthcare, Entertainment, Shopping, Home & Garden, Personal Care, Pets,
+Gifts & Charity, Travel, Education, Insurance, Business, Miscellaneous.
 
 ### rules.toml
 
 ```toml
-# Merchant-to-category mapping rules
-# User rules always take precedence over learned rules.
-# Matching: case-insensitive substring, longest match wins.
+[exclude]
+patterns = ["PAYROLL", ...]      # removed in pipeline stage 1c
 
-[user_rules]
-# Manually authored rules. The system never modifies this section.
-# Format: pattern = "Category" or pattern = "Category:Subcategory"
+[user_rules]                     # hand-authored; the system never modifies these
+"KING SOOPERS" = "Food & Dining:Groceries"
+"NETFLIX" = { category = "Entertainment", subcategory = "Subscriptions", recurring = true }
 
-# Examples:
-# "KING SOOPERS" = "Food & Dining:Groceries"
-# "CHIPOTLE" = "Food & Dining:Fast Food"
-
-[learned_rules]
-# System-managed rules from the learn command. Do not hand-edit.
-# Same format as user_rules.
+[learned_rules]                  # written only by `expense learn`; do not hand-edit
 ```
 
-### Config Loading (`config.py`)
+Rule values are either `"Category"` / `"Category:Subcategory"` strings or an
+inline dict with `category`, `subcategory`, `recurring` keys.
 
-`config.py` provides these functions:
-
-```python
-def load_config(root: Path) -> AppConfig:
-    """Load config.toml and return an AppConfig."""
-
-def load_categories(root: Path) -> list[dict]:
-    """Load categories.toml and return the taxonomy as a list of
-    {name: str, subcategories: list[str]}."""
-
-def load_rules(root: Path) -> list[MerchantRule]:
-    """Load rules.toml and return a sorted list of MerchantRule objects.
-    User rules come first, then learned rules. Within each group,
-    rules are in file order (insertion order)."""
-
-def save_learned_rules(root: Path, rules: list[MerchantRule]) -> None:
-    """Write updated learned rules to the [learned_rules] section of rules.toml.
-    Preserves the [user_rules] section exactly as-is."""
-
-def initialize(target_dir: Path) -> None:
-    """Create the standard directory structure and default config files."""
-```
-
-Writing TOML requires `tomli-w` (since `tomllib` is read-only). This is the only TOML-writing dependency.
+`config.save_learned_rules()` rewrites only the `[learned_rules]` section,
+preserving everything before it byte-for-byte.
 
 ---
 
 ## 8. Categorization Engine
 
-The categorizer is the most important module. It implements the two-tier system and the learn workflow.
-
-### Categorization Flow
+### Flow (as implemented)
 
 ```
-For each transaction:
-    |
-    [1] Match against rules (user rules first, then learned)
-    |-- Match found? --> Apply category, done.
-    |
-    [2] No match: add to LLM batch
-    |
-After all transactions checked:
-    |
-    [3] Send LLM batch (if any and if LLM enabled)
-    |-- LLM returned suggestions? --> Apply to transactions
-    |-- LLM unavailable/failed? --> Leave as "Uncategorized"
-    |
-    [4] Return all transactions
+pipeline.run():  stage 5 applies rules to all uncategorized transactions
+       |
+cli.py:          categorizer.categorize() with selected LLM adapter
+       |
+       +-- LLM adapter present: send ALL remaining uncategorized
+       |   transactions to the LLM (batches of 80)
+       |   -> apply suggestions by transaction ID (merchant name fallback)
+       |
+       +-- No adapter (--no-llm): rules are the only engine;
+           unmatched stay "Uncategorized" with a warning
 ```
 
-### Rule Matching Algorithm
+This is **AI-primary** categorization: rules act as a fast first pass and a
+constraint-free fallback, but the LLM is expected to categorize the bulk of
+long-tail merchants. LLM suggestions are applied to the output but are NOT
+persisted to `rules.toml` — `expense learn` is the only path to new rules.
+
+### Rule Matching
 
 ```python
-def match_rules(merchant: str, rules: list[MerchantRule]) -> MerchantRule | None:
-    """Find the best matching rule for a merchant string.
-
-    Strategy: case-insensitive substring, longest match wins.
-    User rules and learned rules are pre-sorted by source (user first)
-    and original file order. Among all matching rules, the one with
-    the longest pattern wins. Ties broken by list order (user > learned,
-    then insertion order within group).
-    """
-    merchant_upper = merchant.upper()
-    best: MerchantRule | None = None
-    for rule in rules:
-        if rule.pattern.upper() in merchant_upper:
-            if best is None or len(rule.pattern) > len(best.pattern):
-                best = rule
-    return best
+match_rules(merchant, rules, description="")
 ```
 
-User rules beat learned rules only when patterns have the same length, because they appear first in the list and ties go to insertion order. In practice, the longest-match-wins rule handles most cases correctly regardless of source.
+1. Case-insensitive substring match against merchant; **longest pattern
+   wins**; ties break by list order (user rules before learned).
+2. If the best merchant match is *generic* (no subcategory — e.g. bare
+   "Shopping" for Amazon) and a description exists, try matching the
+   **description**; a specific description match (with subcategory) beats the
+   generic merchant match.
+3. If no merchant match at all, description matching is the final fallback.
 
-### LLM Batch Categorization
+Steps 2–3 exist for enriched splits: after enrichment the merchant is the
+retailer ("Amazon") and the product name lives in the description, so
+product-specific rules ("DOG FOOD" → Pets:Food) must be reachable.
 
-When uncategorized transactions remain after rule matching:
+### LLM Prompt
 
-1. Build a prompt containing:
-   - The category taxonomy (from `categories.toml`)
-   - A list of uncategorized transactions (merchant, description, amount, date)
-   - Instructions to return a JSON array of `{merchant, category, subcategory}` objects
-2. Send a single API call to the configured LLM provider.
-3. Parse the JSON response.
-4. Apply suggestions to the matching transactions in the pipeline.
-
-The LLM suggestions are applied to the output CSV so the user sees a fully categorized report. They are NOT written to `rules.toml`. The learn command is the only path to persisting new rules.
-
-### LLM Prompt Structure
-
-```
-You are categorizing household expenses. For each transaction below,
-assign the most appropriate category and subcategory from the provided taxonomy.
-
-## Category Taxonomy
-{formatted taxonomy from categories.toml}
-
-## Transactions to Categorize
-{formatted list: merchant | description | amount | date}
-
-## Response Format
-Return a JSON array. Each element:
-{"merchant": "...", "category": "...", "subcategory": "..."}
-
-Use only categories and subcategories from the taxonomy above.
-If no subcategory applies, use an empty string for subcategory.
-```
+Single prompt per batch containing: household context (location, family,
+pets, known local merchants — see `llm.HOUSEHOLD_CONTEXT`), categorization
+rules (refunds match original category, sales-tax lines match their split,
+etc.), the full taxonomy, and the transaction lines
+`ID | Merchant | Description | Amount | Date [| source]`. Response: strict
+JSON array of `{id, category, subcategory}`.
 
 ### Learn Workflow
 
-```python
-def learn(original_path: Path, corrected_path: Path, rules: list[MerchantRule]) -> LearnResult:
-    """Compare original and corrected CSVs, extract new rules.
-
-    Returns a LearnResult with counts of added, updated, and skipped rules.
-    """
-```
-
-Algorithm:
-1. Parse both CSVs, index by `transaction_id`.
-2. For each transaction present in both files where category or subcategory changed:
-   a. Extract the rule pattern from the transaction's `merchant` field exactly as stored (already normalized by the parser). No additional normalization is applied -- the pattern is the `merchant` value verbatim. This means parsers are responsible for producing stable, matchable merchant strings (stripping bank-specific prefixes, trailing reference numbers, etc.), because the quality of learned patterns depends directly on parser normalization. If the same merchant appears with different names across banks (e.g., "CHIPOTLE MEXICAN GRIL" vs. "CHIPOTLE ONLINE"), they will produce separate rules; the longest-match-wins algorithm will still match correctly as long as patterns share a common substring with the real merchant names.
-   b. Check if a user rule already covers this merchant. If yes, skip (never overwrite user rules).
-   c. Check if a learned rule already exists for this exact pattern. If yes, update its category.
-   d. Otherwise, add a new learned rule.
-3. Write the updated learned rules via `config.save_learned_rules()`.
+`categorizer.learn(original_path, corrected_path, rules) -> LearnResult`.
+Rule patterns are the transaction's `merchant` value **verbatim** — parsers
+own normalization, so cross-bank variants of the same merchant produce
+separate rules (longest-match-wins tolerates this).
 
 ---
 
-## 9. Error Handling
+## 9. Recurring Detection
 
-### Strategy
+`recurring.detect_recurring(transactions, output_dir)`:
 
-Partial failure is always preferred over total failure. Each pipeline stage handles errors independently and reports them.
+1. Loads all historical `output/*.csv` files.
+2. Groups by uppercased merchant; needs **3+ distinct months**.
+3. Compares per-month median amounts; all within **20% variance** → recurring.
+4. Pipeline stage 6 flags matching transactions `is_recurring=True`, but
+   explicit rule-based recurring flags (either direction) take precedence.
 
-### Error Propagation
+The flag flows to the CSV (`is_recurring` column) and Sheets, enabling
+subscription/bill rollups in pivot tables.
 
-Errors do not propagate as exceptions across pipeline stages. Instead, every stage function returns a `StageResult`. The pipeline collects warnings and errors from each stage's result and includes them in the final summary. This is the universal return type for all pipeline stage functions, including parsers.
+---
 
-```python
-@dataclass
-class StageResult:
-    transactions: list[Transaction]
-    warnings: list[str]
-    errors: list[str]
-```
+## 10. Error Handling
 
-Defined in `models.py` alongside `Transaction`.
+**Partial failure over total failure.** Errors never propagate as exceptions
+across stage boundaries; every stage returns `StageResult` and the pipeline
+accumulates warnings/errors for the final summary.
 
-### Per-Stage Error Behavior
-
-| Stage | Error Case | Behavior |
+| Stage | Error case | Behavior |
 |-------|-----------|----------|
-| **Parse** | File not found / unreadable | Skip file, add error. Process other files. |
-| **Parse** | Wrong CSV format (missing expected columns) | Skip file, add error. |
-| **Parse** | Malformed row | Skip row, add warning. |
-| **Parse** | >10% malformed rows in one file | Skip entire file, add error (likely format change). |
-| **Deduplicate** | (No failure modes) | -- |
-| **Detect Transfers** | No matching transfer pair | Not an error; transaction is not a transfer. |
-| **Enrich** | Missing enrichment cache | Not an error; skip enrichment for that transaction. |
-| **Enrich** | Split amounts do not sum to original | Keep original unsplit, add warning. |
-| **Categorize** | No rule match | Fall through to LLM tier. |
-| **Categorize** | LLM unavailable | Leave uncategorized, add warning. |
-| **Categorize** | LLM returns unparseable response | Leave uncategorized, add warning. |
-| **Export** | Output directory not writable | Fatal error (cannot produce output). |
+| Parse | File unreadable / wrong columns | Skip file, add error |
+| Parse | Malformed row | Skip row, add warning |
+| Parse | >10% malformed rows | Fail the file (likely format change) |
+| Exclude | (none) | Reports exclusion count as warning |
+| Dedup | (no failure modes) | Reports count |
+| Transfers | No pair found | Not an error |
+| Enrich | No cache file | Pass through unchanged |
+| Enrich | Splits don't sum to original (±$0.01) | Keep original, warn |
+| Categorize | No rule match | Falls through to LLM tier |
+| Categorize | LLM unavailable / unparseable | Leave uncategorized, warn |
+| Recurring | Any exception | Warn, continue unflagged |
+| Export | Output dir not writable | Fatal (cannot produce output) |
+| Push | Missing credentials / API failure | Fatal for that command only |
 
-### Summary Output
-
-After processing, the summary includes:
-
-```
-== Processing Summary: 2026-01 ==
-Sources:  Chase (148 txns), Capital One (89 txns), Elevations (42 txns)
-Total:    279 transactions (6 transfers excluded)
-Enriched: 0 of 12 eligible (no enrichment cache)
-Categorized: 251 / 273 (91.9%)
-  - Rule match:  238
-  - LLM:          13
-  - Uncategorized: 22
-
-Top uncategorized merchants:
-  1. NEW MERCHANT XYZ         (3 txns, $142.50)
-  2. UNKNOWN STORE            (2 txns, $67.30)
-  ...
-
-Spending by category:
-  Food & Dining:     $1,247.32
-  Transportation:      $438.10
-  ...
-
-Warnings: 2
-  - chase/Activity2026.csv: skipped 1 malformed row (row 47)
-  - LLM: 3 transactions could not be parsed from response
-```
+Browser automation (download/enrich) additionally treats bot detection,
+session expiry, and selector drift as routine: interactive fallback for auth,
+debug HTML dumps for failed scrapes.
 
 ---
 
-## 10. Key ADRs
+## 11. Key ADRs
 
 ### ADR-1: Flat Files Over SQLite
 
-**Decision:** Monthly CSVs and TOML config files. No database.
-
-**Rationale:** The primary consumption path is Google Sheets with pivot tables. Monthly CSV files import directly into Sheets and are self-contained, portable, and version-controllable. The user also inspects and edits data in text editors and spreadsheets for the learn workflow. SQLite would add a dependency and make data opaque for marginal query benefits that are not needed until Phase 3. If cross-month queries become necessary, SQLite can be added as a read-only index over existing CSVs.
+Monthly CSVs and TOML config, no database. Primary consumption is Google
+Sheets with pivot tables; CSVs import directly and stay human-inspectable.
+SQLite could later be added as a read-only index — not needed so far.
 
 ### ADR-2: Deterministic Transaction IDs via Hash
 
-**Decision:** SHA-256 hash of `institution|date|merchant_upper|amount|row_ordinal`, truncated to 12 hex characters.
-
-**Rationale:** Banks do not provide unique transaction IDs in CSV exports. A deterministic hash ensures the same input always produces the same ID, enabling deduplication across re-runs and overlapping downloads. Row ordinal is included to distinguish identical transactions on the same day (e.g., two charges at the same coffee shop). This approach has worked reliably in v2 across two years and three banks.
+SHA-256 of `institution|date|merchant_upper|amount|row_ordinal`, truncated to
+12 hex chars. Banks provide no unique IDs; the deterministic hash enables
+dedup across re-runs and overlapping downloads. Proven across v2 (two years,
+three banks).
 
 ### ADR-3: Substring Matching, Not Regex
 
-**Decision:** Case-insensitive substring matching with longest-match-wins for merchant rules.
-
-**Rationale:** Substring matching handles 95%+ of merchant patterns. It is easy to understand, easy to debug, and requires no special syntax knowledge. Regex adds complexity and footguns for marginal benefit. If a case arises that truly requires regex, it can be added as an opt-in `type: regex` field on individual rules.
+Case-insensitive substring with longest-match-wins. Handles 95%+ of merchant
+patterns with zero syntax overhead. Regex could be added later as an opt-in
+per-rule field.
 
 ### ADR-4: Enrichment as Separate Pre-Processing
 
-**Decision:** Enrichment (Amazon/Target item-level data) is a separate `enrich` command that writes to a local cache. The main pipeline reads from the cache.
+`expense enrich` scrapes and writes the cache; the pipeline only reads the
+cache. Scrapers are slow and flaky; the fast path (`expense process` without
+enrichment) must stay fast and reliable.
 
-**Rationale:** Enrichment sources (browser automation, external APIs) are inherently slow and unreliable. Making them a blocking pipeline stage would make the common case (no enrichment) slower and less reliable. Separating them keeps the fast path fast: `expense process` completes in seconds. Users who want enrichment run `expense enrich` first, then `expense process`.
+### ADR-5: LLM Suggestions Auto-Applied, Persisted Only After Learn
 
-### ADR-5: LLM Suggestions Auto-Applied, Cached Only After Learn
+LLM output lands in the CSV immediately; `rules.toml` only grows via `learn`
+(user-confirmed corrections). Prevents bad suggestions from polluting the
+knowledge base.
 
-**Decision:** LLM categorization suggestions are written to the output CSV immediately but are not persisted to `rules.toml` until the user runs `learn`.
+### ADR-6: Click for CLI
 
-**Rationale:** This gives the user a fully categorized report on first run (no "Uncategorized" for LLM-handled transactions) while ensuring the knowledge base only grows from confirmed categorizations. The review-and-learn cycle IS the confirmation step. This prevents bad LLM suggestions from polluting the rules file.
+Explicit decorators, mature ecosystem. (Typer wraps Click anyway.)
 
-### ADR-6: Click for CLI Framework
+### ADR-7: Raw HTTP / Subprocess for LLM, No Framework
 
-**Decision:** Click over Typer.
-
-**Rationale:** Both are viable. Click is chosen for its explicit decorator syntax, mature ecosystem, and broad compatibility. The CLI is simple enough that either framework works. The choice avoids Typer's dependency on Click (it wraps Click internally) and its reliance on type annotation parsing, which can be surprising in edge cases.
-
-### ADR-7: Raw HTTP for LLM, No Framework
-
-**Decision:** Direct HTTP calls to the Anthropic Messages API via `httpx`. No LangChain, no LiteLLM.
-
-**Rationale:** The LLM interaction is a single prompt-and-response pattern. A framework adds hundreds of transitive dependencies for functionality we do not use. A thin adapter (~50 lines for the Anthropic implementation) is sufficient, testable, and transparent. The `LLMAdapter` protocol enables adding providers later without a framework.
+Direct Anthropic Messages API via `httpx`, or a `claude` CLI subprocess. No
+LangChain/LiteLLM — a single prompt-response pattern doesn't justify hundreds
+of transitive dependencies.
 
 ### ADR-8: Three TOML Config Files
 
-**Decision:** Separate `config.toml`, `categories.toml`, and `rules.toml`.
+`config.toml` (settings), `categories.toml` (taxonomy, rarely changes),
+`rules.toml` (grows constantly via `learn`). Separation minimizes merge
+conflicts and keeps `learn`'s blast radius to one section of one file.
 
-**Rationale:** Separation of concerns. `rules.toml` will grow to 500+ entries and changes frequently (via `learn`). `categories.toml` rarely changes. `config.toml` is application settings. Keeping them separate means the `learn` command only touches `rules.toml`, reduces merge conflicts in version control, and keeps each file focused and readable.
+### ADR-9: AI-Primary Categorization via Claude Code Subprocess
+
+*Supersedes the MVP's "rules first, LLM as fallback" ordering.* The default
+categorizer is `ClaudeCodeAdapter`, which invokes the `claude` CLI
+(`--print --model sonnet --max-turns 3`) as a subprocess. **Rationale:** the
+user's Claude Max subscription makes per-month categorization effectively
+free versus metered API credits, and LLM accuracy on long-tail merchants
+exceeds a hand-maintained rule base. Rules still run first (cheap, exact,
+needed for `--no-llm`), and the Anthropic API adapter remains for headless/CI
+use. Household context in the prompt encodes local knowledge (merchant
+aliases, family specifics) that would otherwise require hundreds of rules.
+
+### ADR-10: Playwright + Persistent Sessions for Bank/Retailer Automation
+
+Banks and Target employ bot detection (Cloudflare Turnstile, device
+fingerprinting, MFA). Fully headless first-login is not feasible. Decision:
+interactive first run with session state persisted under `.auth/<bank>/`,
+then reuse (headless-capable) with interactive fallback on expiry. Selector
+strategy for React SPAs: comma-ordered selector lists, most-current-first,
+legacy kept as fallbacks; debug HTML dumps on failure. Credentials come from
+KeePass (KPX server preferred, `pykeepass` fallback) — never from config
+files or env vars in plaintext.
+
+### ADR-11: Google Sheets as the Analysis Layer
+
+The CSV is the system of record; Google Sheets is the consumption/analysis
+layer (pivot tables, charts). `expense push` supports month-level upsert so
+re-processing a month never disturbs other months' data. A `month` column was
+added to the export schema to make upserts and pivots trivial.
+
+### ADR-12: Description-Based Rule Matching for Enriched Splits
+
+Enriched splits normalize `merchant` to the retailer and put the product in
+`description`. Categorization therefore matches rules against descriptions
+when the merchant match is generic or absent. **Rationale:** "Amazon" alone
+is unclassifiable; the product text is the signal. This keeps one generic
+retailer rule from masking product-specific rules.
 
 ---
 
 ## Appendix: Dependencies
 
-### MVP Direct Dependencies
-
-| Package | Purpose | Notes |
-|---------|---------|-------|
-| `click` | CLI framework | Command definitions, argument parsing |
-| `httpx` | HTTP client | LLM API calls |
-| `tomli-w` | TOML writing | Writing learned rules to rules.toml (`tomllib` is read-only) |
-
-Three direct runtime dependencies. `tomllib` (stdlib) handles TOML reading. `csv` (stdlib) handles CSV I/O. `hashlib` (stdlib) handles transaction ID generation.
-
-### Dev Dependencies
+### Runtime
 
 | Package | Purpose |
 |---------|---------|
-| `pytest` | Testing |
-| `ruff` | Linting and formatting |
+| `click` | CLI framework |
+| `httpx` | Anthropic API calls |
+| `tomli-w` | Writing learned rules (`tomllib` is read-only) |
+| `gspread`, `google-auth` | Google Sheets push |
+| `playwright` | Bank download + retailer enrichment automation |
+| `pykeepass` / `kpx` (optional) | Credential lookup for browser automation |
 
-### Phase 2 Additions (not in MVP)
+`tomllib`, `csv`, `hashlib`, `json`, `subprocess` from stdlib.
+
+### Dev
 
 | Package | Purpose |
 |---------|---------|
-| `gspread` | Google Sheets API |
-| `google-auth` | Google authentication |
-| `playwright` | Browser automation for Amazon enrichment |
+| `pytest`, `pytest-cov` | Testing |
+| `ruff` | Lint + format (line-length 100; rules E, F, I, UP, B, SIM) |
+
+### CI
+
+GitHub Actions (`.github/workflows/ci.yml`): Python 3.12, `pip install -e
+".[dev]"`, `ruff check src/ tests/`, `pytest`.
 
 ---
 
 ## Changelog
 
-### 2026-02-14 -- Address architecture review findings (M1-M5)
+### 2026-07 — Full rewrite to match implemented system
 
-Targeted updates to resolve five moderate concerns identified by the architecture reviewer:
+The original MVP architecture (authored 2026-02) is superseded by this
+document. Major deltas:
 
-- **M1 (Enrichment trigger ambiguity):** Added clarifying language in Stage 4 (Enrich) that "eligible for enrichment" means "has cached enrichment data on disk," not "triggers a fetch." The enrich stage is a pure cache lookup.
-- **M2 (Merchant pattern extraction underspecified):** Expanded the learn algorithm (Section 8, step 2a) to specify that patterns are extracted from the `merchant` field verbatim as stored in the Transaction. Parsers own normalization; no additional normalization is applied at learn time. Documented behavior for cross-bank merchant name variations.
-- **M3 (Month filtering has no clear home):** Resolved the contradiction between the Parser Protocol (no month parameter) and the CLI text ("parsers handle date filtering"). Parsers now explicitly return all rows; the pipeline owns month filtering. Updated Stage 1 description, Parser Protocol signature, and CLI behavior text for consistency.
-- **M4 (`StageResult` not integrated into stage signatures):** Updated Section 3 preamble, Section 5 Parser Protocol, and Section 9 to establish `StageResult` as the universal return type for all pipeline stage functions. Moved `StageResult` definition to `models.py`.
-- **M5 (CSV file discovery unspecified):** Added file discovery rules to the `expense process` behavior: glob `*.csv` (case-insensitive), non-recursive, excluding hidden and temp files.
+- **AI-primary categorization** via Claude Code subprocess (ADR-9); rules run
+  first in the pipeline, LLM tier moved to the CLI layer
+- **New modules:** `recurring.py` (auto recurring detection), `sheets.py`
+  (Google Sheets push with month upsert), `enrichment/` (Amazon multi-account,
+  Target, Venmo providers + cache), `download/` (Playwright bank downloaders,
+  KeePass credentials)
+- **Pipeline stages added:** exclude (1c), source tagging (4b), recurring (6)
+- **Model additions:** `is_recurring`, `source` on Transaction; `recurring`
+  on MerchantRule; `AmazonAccountConfig`, `SheetsConfig`; `month`,
+  `is_recurring`, `source` columns in the export schema
+- **New CLI commands:** `push`, `download`; `enrich` implemented with three
+  providers
+- **rules.toml gained `[exclude]`** and the inline-dict rule format with
+  `recurring`
 
-Additional context incorporated from Product Owner: primary data consumption is via Google Sheets with pivot tables. Updated Stage 6 (Export) and ADR-1 to reflect this.
+### 2026-02-14 — Address architecture review findings (M1–M5)
+
+(Historical, from the MVP doc.) Clarified enrichment trigger semantics (cache
+lookup only), merchant pattern extraction in learn (verbatim from `merchant`
+field), month filtering ownership (pipeline, not parsers), `StageResult` as
+the universal stage return type, and CSV file discovery rules.

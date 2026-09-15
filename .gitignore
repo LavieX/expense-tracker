@@ -53,3 +53,15 @@ config.toml
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Gas City
+.beads/*
+!.beads/config.yaml
+!.beads/metadata.json
+!.beads/identity.toml
+
+# Machine-local (absolute-path symlinks into ~/.gc cache)
+.claude/
+
+# Real financial data / ad-hoc report generators
+reports/
